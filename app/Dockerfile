@@ -2,9 +2,10 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# 시스템 패키지 (필요시 컴파일 위해)
+# 시스템 패키지 + PrusaSlicer
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    prusa-slicer \
     && rm -rf /var/lib/apt/lists/*
 
 # Python 패키지 먼저 설치 (캐시 효율)

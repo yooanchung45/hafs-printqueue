@@ -30,7 +30,7 @@ DEFAULT_SETTINGS = {
     "temperature": "220",        # nozzle
     "first-layer-temperature": "215",
     "first-layer-bed-temperature": "65",
-    "infill-pattern": "gyroid",
+    "--fill-pattern": "gyroid",
 }
 
 SLICE_TIMEOUT = 300  # 5분 타임아웃
@@ -78,7 +78,7 @@ async def slice_stl(
         "--temperature", "220",
         "--first-layer-temperature", "215",
         "--first-layer-bed-temperature", "65",
-        "--infill-pattern", "gyroid",
+        "--fill-pattern", "gyroid",
         "--perimeters", "3",
     ]
 
