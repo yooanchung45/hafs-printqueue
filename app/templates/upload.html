@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+{% block title %}새 출력 신청 · HAFS PrintQueue{% endblock %}
+
+{% block content %}
+<section class="welcome">
+    <h1>새 출력 신청</h1>
+    <p class="subtitle">파일을 업로드해서 출력을 신청하세요</p>
+</section>
+
+{% if error %}
+<div class="error-message">
+    {% if error == "no_files" %}파일을 선택해주세요.
+    {% elif error == "invalid_extension" %}STL, .3mf, .gcode 파일만 업로드할 수 있습니다.
+    {% elif error == "invalid_printer" %}잘못된 프린터입니다.
+    {% elif error == "file_too_large" %}파일이 너무 큽니다 (최대 200MB).
+    {% elif error == "no_stl_files" %}STL 파일이 없습니다.
+    {% else %}오류: {{ error }}{% endif %}
+</div>
+{% endif %}
+
+<!-- Two paths -->
+<div class="upload-paths">
+
+    <!-- Path 1: STL → Preview → Submit -->
+    <div class="upload-path-card upload-path-stl">
+        <div class="path-header">
+            <div class="path-icon">🧊</div>
+            <div>
+                <div class="path-title">STL 파일 업로드</div>
+                <div class="path-desc">3D 모델 파일 — 미리보기 후 출력 신청</div>
+            </div>
+        </div>
+
+        <form id="stl-form" method="post" action="/upload/stl-preview" enctype="multipart/form-data">
+            <label class="drop-zone" id="stl-drop">
+                <input type="file" name="files" id="stl-input" accept=".stl" multiple>
+                <div class="drop-icon">📁</div>
+                <div class="drop-text">STL 파일을 여기에 끌어다 놓거나 클릭</div>
+                <div class="drop-hint">여러 파일 동시 선택 가능</div>
+            </label>
+            <div id="stl-file-list" class="file-list" style="display:none;"></div>
+            <button type="submit" class="btn btn-primary btn-full" id="stl-submit" disabled>
+                3D 미리보기 →
+            </button>
+        </form>
+    </div>
+
+    <!-- Path 2: Already sliced → Direct submit -->
+    <div class="upload-path-card upload-path-sliced">
+        <div class="path-header">
+            <div class="path-icon">⚙️</div>
+            <div>
+                <div class="path-title">슬라이싱된 파일 업로드</div>
+                <div class="path-desc">.3mf 또는 .gcode — 바로 큐 신청</div>
+            </div>
+        </div>
+
+        <form id="sliced-form" method="post" action="/upload" enctype="multipart/form-data">
+            <label class="drop-zone" id="sliced-drop">
+                <input type="file" name="file" id="sliced-input" accept=".3mf,.gcode" required>
+                <div class="drop-icon" id="sliced-icon">📁</div>
+                <div class="drop-text" id="sliced-text">.3mf / .gcode 파일을 여기에 끌어다 놓거나 클릭</div>
+                <div class="drop-hint">Bambu Studio 또는 OrcaSlicer에서 슬라이싱 후 내보낸 파일</div>
+            </label>
+            <div class="form-group">
+                <label>프린터 선택</label>
+                <select name="printer_id" required>
+                    {% for printer in printers %}
+                    <option value="{{ printer.id }}">{{ printer.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>메모 (선택)</label>
+                <textarea name="user_notes" rows="2" placeholder="관리자에게 전달할 메모"></textarea>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary btn-full">업로드 + 큐 신청</button>
+            </div>
+        </form>
+    </div>
+
+</div>
+
+<style>
+.upload-paths {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-top: 8px;
+}
+.upload-path-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+}
+.upload-path-stl { border-top: 3px solid var(--accent); }
+.upload-path-sliced { border-top: 3px solid var(--accent); }
+.drop-zone.has-file {
+    border-color: var(--success);
+    background: rgba(5, 150, 105, .04);
+}
+.path-header {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 20px;
+}
+.path-icon { font-size: 28px; }
+.path-title { font-size: 15px; font-weight: 600; }
+.path-desc { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+.drop-zone {
+    display: block;
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 32px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s;
+    margin-bottom: 14px;
+}
+.drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(37, 99, 235, .04);
+}
+.drop-zone input[type="file"] {
+    display: none;
+}
+.drop-icon { font-size: 28px; margin-bottom: 8px; opacity: .5; }
+.drop-text { font-size: 14px; color: var(--text-muted); }
+.drop-hint { font-size: 12px; color: var(--text-muted); opacity: .7; margin-top: 4px; }
+.file-list { margin-bottom: 14px; }
+.file-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 6px;
+    font-size: 13px;
+}
+.file-item-name { flex: 1; font-weight: 500; }
+.file-item-size { color: var(--text-muted); font-size: 12px; }
+.file-item-remove {
+    background: none; border: none; cursor: pointer;
+    color: var(--text-muted); font-size: 16px; padding: 0 4px;
+}
+.file-item-remove:hover { color: var(--danger); }
+.btn-full { width: 100%; margin-top: 4px; }
+@media (max-width: 680px) {
+    .upload-paths { grid-template-columns: 1fr; }
+}
+</style>
+
+<script>
+const input = document.getElementById('stl-input');
+const dropZone = document.getElementById('stl-drop');
+const fileList = document.getElementById('stl-file-list');
+const submitBtn = document.getElementById('stl-submit');
+let selectedFiles = new DataTransfer();
+
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function renderFileList() {
+    if (selectedFiles.files.length === 0) {
+        fileList.style.display = 'none';
+        submitBtn.disabled = true;
+        return;
+    }
+    fileList.style.display = 'block';
+    submitBtn.disabled = false;
+    fileList.innerHTML = Array.from(selectedFiles.files).map((f, i) => `
+        <div class="file-item">
+            <span>🧊</span>
+            <span class="file-item-name">${f.name}</span>
+            <span class="file-item-size">${formatSize(f.size)}</span>
+            <button class="file-item-remove" onclick="removeFile(${i})" type="button">✕</button>
+        </div>
+    `).join('');
+    submitBtn.textContent = `3D 미리보기 → (${selectedFiles.files.length}개 파일)`;
+}
+
+function removeFile(index) {
+    const dt = new DataTransfer();
+    Array.from(selectedFiles.files).forEach((f, i) => {
+        if (i !== index) dt.items.add(f);
+    });
+    selectedFiles = dt;
+    input.files = selectedFiles.files;
+    renderFileList();
+}
+
+input.addEventListener('change', () => {
+    Array.from(input.files).forEach(f => selectedFiles.items.add(f));
+    input.files = selectedFiles.files;
+    renderFileList();
+});
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('dragover');
+    Array.from(e.dataTransfer.files)
+        .filter(f => f.name.toLowerCase().endsWith('.stl'))
+        .forEach(f => selectedFiles.items.add(f));
+    input.files = selectedFiles.files;
+    renderFileList();
+});
+
+// ── Sliced file drop zone ──────────────────────────────────
+const slicedInput = document.getElementById('sliced-input');
+const slicedDrop  = document.getElementById('sliced-drop');
+const slicedIcon  = document.getElementById('sliced-icon');
+const slicedText  = document.getElementById('sliced-text');
+
+function setSlicedFile(file) {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    slicedInput.files = dt.files;
+    slicedIcon.textContent = '✅';
+    slicedText.textContent = file.name;
+    slicedDrop.classList.add('has-file');
+}
+
+slicedInput.addEventListener('change', () => {
+    if (slicedInput.files[0]) setSlicedFile(slicedInput.files[0]);
+});
+slicedDrop.addEventListener('dragover', e => { e.preventDefault(); slicedDrop.classList.add('dragover'); });
+slicedDrop.addEventListener('dragleave', () => slicedDrop.classList.remove('dragover'));
+slicedDrop.addEventListener('drop', e => {
+    e.preventDefault(); slicedDrop.classList.remove('dragover');
+    const file = Array.from(e.dataTransfer.files)
+        .find(f => /\.(3mf|gcode)$/i.test(f.name));
+    if (file) setSlicedFile(file);
+});
+</script>
+{% endblock %}

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}대시보드 · HAFS PrintQueue{% endblock %}
+
+{% block content %}
+<section class="welcome">
+    <h1>안녕하세요, {{ user.name }} 👋</h1>
+    <p class="subtitle">
+        {{ user.email }}
+        {% if user.role.value == "admin" %}
+            <span class="badge badge-admin">관리자</span>
+        {% endif %}
+    </p>
+    <div class="welcome-actions">
+        <a href="/upload" class="btn btn-primary">+ 새 출력 신청</a>
+        <a href="/jobs" class="btn btn-ghost">내 작업 보기</a>
+        <a href="/guide" class="btn btn-ghost">슬라이싱 가이드</a>
+        {% if user.role.value == "admin" %}
+            <a href="/admin" class="btn btn-ghost">관리자 페이지</a>
+        {% endif %}
+    </div>
+</section>
+
+<section>
+    <h2 class="section-title">프린터 현황</h2>
+    <div class="printer-grid">
+        {% for printer in printers %}
+            <div class="printer-card">
+                <div class="printer-header">
+                    <h3>{{ printer.name }}</h3>
+                    <span class="status-badge status-{{ printer.status.value }}">
+                        {% if printer.status.value == "idle" %}대기 중
+                        {% elif printer.status.value == "printing" %}출력 중
+                        {% elif printer.status.value == "paused" %}중지됨 (필라멘트 확인){% elif printer.status.value == "error" %}오류
+                        {% elif printer.status.value == "offline" %}연결 안 됨
+                        {% endif %}
+                    </span>
+                </div>
+                {% if printer.ip %}
+                    <p class="printer-info">IP: {{ printer.ip }}</p>
+                {% else %}
+                    <p class="printer-info muted">아직 등록되지 않음</p>
+                {% endif %}
+
+                {% set slots = slots_by_printer.get(printer.id, []) %}
+                {% if slots %}
+                    <div class="ams-strip">
+                        {% for slot in slots %}
+                            <div class="ams-slot" title="슬롯 {{ slot.slot_index + 1 }}: {{ slot.color_name or '비어있음' }} ({{ slot.material_type or '' }})">
+                                <div class="ams-color" style="background: {{ slot.color_hex if slot.color_hex else '#f3f4f6' }}; {% if not slot.color_hex %}border: 1px dashed var(--text-muted);{% endif %}"></div>
+                                <div class="ams-label">
+                                    {% if slot.is_empty %}
+                                        <span class="muted">빈 슬롯</span>
+                                    {% else %}
+                                        <strong>{{ slot.material_type }}</strong>
+                                        <small>{{ slot.color_name or '' }}</small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

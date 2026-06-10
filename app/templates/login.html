@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}로그인 · HAFS PrintQueue{% endblock %}
+
+{% block content %}
+<div class="login-card">
+    <h1>HAFS PrintQueue</h1>
+    <p class="subtitle">학교 3D 프린터 출력 큐 시스템</p>
+
+    {% if error %}
+        <div class="error-message">
+            {% if error == "domain_not_allowed" %}
+                학교 이메일(<code>@hafs.hs.kr</code>)로만 로그인할 수 있습니다.
+            {% elif error == "email_not_verified" %}
+                이메일이 인증되지 않았습니다.
+            {% elif error == "no_userinfo" %}
+                Google에서 사용자 정보를 받지 못했습니다. 다시 시도해주세요.
+            {% else %}
+                로그인 중 문제가 발생했습니다: {{ error }}
+            {% endif %}
+        </div>
+    {% endif %}
+
+    <a href="/auth/login" class="btn btn-primary btn-google">
+        Google로 로그인
+    </a>
+
+    <p class="note">
+        학교 이메일(<code>@hafs.hs.kr</code>)이 있는 학생만 사용할 수 있습니다.
+    </p>
+</div>
+{% endblock %}

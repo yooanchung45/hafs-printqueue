@@ -1,0 +1,21 @@
+# 절대 올리면 안 되는 것
+.env
+data/
+
+# 백업/캐시
+*.bak*
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 에디터
+.vscode/
+.idea/
+*.swp
+
+# 카메라 스냅샷 (런타임 생성)
+app/static/cam*.jpg

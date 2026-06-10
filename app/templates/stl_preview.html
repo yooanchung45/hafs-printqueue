@@ -1,0 +1,599 @@
+{% extends "base.html" %}
+
+{% block title %}3D 미리보기 · HAFS PrintQueue{% endblock %}
+
+{% block content %}
+<section class="welcome">
+    <h1>3D 미리보기</h1>
+    <p class="subtitle">모델을 확인하고 출력 설정 후 신청하세요</p>
+</section>
+
+<div class="preview-layout">
+
+    <!-- Left: 3D Viewer -->
+    <div class="viewer-section">
+
+        <!-- Carousel nav -->
+        <div class="carousel-nav">
+            <button class="carousel-btn" id="prev-btn" onclick="prevModel()" disabled>‹</button>
+            <div class="carousel-info">
+                <span id="carousel-counter">1 / {{ files|length }}</span>
+                <span id="carousel-filename" class="carousel-filename">{{ files[0].original_name }}</span>
+            </div>
+            <button class="carousel-btn" id="next-btn" onclick="nextModel()" {% if files|length <= 1 %}disabled{% endif %}>›</button>
+        </div>
+
+        <!-- Viewer canvas -->
+        <div class="viewer-wrap">
+            <div id="viewer"></div>
+            <div id="viewer-loading">모델 로딩 중...</div>
+            <div class="viewer-hint">드래그: 회전 · 스크롤: 확대 </div>
+        </div>
+
+        <!-- Model info bar -->
+        <div class="model-info-bar" id="model-info" style="display:none">
+            <span>📐 <span id="info-size">—</span></span>
+            <span>△ <span id="info-tris">—</span> 삼각형</span>
+        </div>
+
+        <!-- Transform controls -->
+        <div class="transform-bar" id="transform-bar" style="display:none">
+
+            <!-- Scale -->
+            <div class="transform-group">
+                <div class="transform-label">크기 조절</div>
+                <div class="scale-row">
+                    <span class="scale-val" id="scale-display">100%</span>
+                    <input type="range" id="scale-slider"
+                        min="1" max="400" value="100" step="1"
+                        oninput="onScaleChange(this.value)">
+                    <button class="reset-btn" onclick="resetScale()" title="초기화">↺</button>
+                </div>
+                <div class="scale-presets">
+                    <button onclick="setScale(25)">25%</button>
+                    <button onclick="setScale(50)">50%</button>
+                    <button onclick="setScale(100)">100%</button>
+                    <button onclick="setScale(200)">200%</button>
+                </div>
+            </div>
+
+            <!-- Rotation -->
+            <div class="transform-group">
+                <div class="transform-label">회전 (90°씩)</div>
+                <div class="rot-grid">
+                    <div class="rot-axis-label">X축</div>
+                    <button class="rot-btn" onclick="rotate('x', 90)"  title="X축 +90°">&#x21BB;</button>
+                    <button class="rot-btn" onclick="rotate('x', -90)" title="X축 -90°">&#x21BA;</button>
+
+                    <div class="rot-axis-label">Y축</div>
+                    <button class="rot-btn" onclick="rotate('y', 90)"  title="Y축 +90°">&#x21BB;</button>
+                    <button class="rot-btn" onclick="rotate('y', -90)" title="Y축 -90°">&#x21BA;</button>
+
+                    <div class="rot-axis-label">Z축</div>
+                    <button class="rot-btn" onclick="rotate('z', 90)"  title="Z축 +90°">&#x21BB;</button>
+                    <button class="rot-btn" onclick="rotate('z', -90)" title="Z축 -90°">&#x21BA;</button>
+                </div>
+                <button class="reset-rot-btn" onclick="resetRotation()">↺ 회전 초기화</button>
+            </div>
+
+        </div>
+
+        <!-- Bed warning (injected by JS) -->
+
+        <!-- Thumbnail strip -->
+        {% if files|length > 1 %}
+        <div class="thumb-strip">
+            {% for f in files %}
+            <div class="thumb-item {% if loop.first %}active{% endif %}"
+                 id="thumb-{{ loop.index0 }}"
+                 data-index="{{ loop.index0 }}"
+                 onclick="goToModel(+this.dataset.index)">
+                <div class="thumb-icon">🧊</div>
+                <div class="thumb-name">{{ f.original_name[:12] }}{% if f.original_name|length > 12 %}…{% endif %}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Right: Submit form -->
+    <div class="submit-section">
+        <h2 class="submit-title">출력 설정</h2>
+
+        <form method="post" action="/upload/stl-confirm" id="confirm-form">
+            {% for f in files %}
+            <input type="hidden" name="file_ids"    value="{{ f.temp_id }}">
+            <input type="hidden" name="filenames"   value="{{ f.original_name }}">
+            <input type="hidden" name="scales"      id="scale-{{ loop.index0 }}"   value="1.0">
+            <input type="hidden" name="rotations_x" id="rot_x-{{ loop.index0 }}"  value="0">
+            <input type="hidden" name="rotations_y" id="rot_y-{{ loop.index0 }}"  value="0">
+            <input type="hidden" name="rotations_z" id="rot_z-{{ loop.index0 }}"  value="0">
+            {% endfor %}
+
+            <div class="files-summary">
+                <div class="files-summary-title">선택한 파일 ({{ files|length }}개)</div>
+                {% for f in files %}
+                <div class="files-summary-item" id="summary-{{ loop.index0 }}">
+                    <span>🧊</span>
+                    <span>{{ f.original_name }}</span>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="form-group">
+                <label for="printer_id">프린터 선택</label>
+                <select id="printer_id" name="printer_id" required>
+                    {% for printer in printers %}
+                    <option value="{{ printer.id }}">
+                        {{ printer.name }}
+                        {% if printer.status.value == "idle" %}(대기 중)
+                        {% elif printer.status.value == "printing" %}(출력 중)
+                        {% else %}(오프라인){% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+                <small>모든 파일이 같은 프린터 큐에 들어갑니다</small>
+            </div>
+
+            <div class="form-group">
+                <label for="user_notes">메모 (선택)</label>
+                <textarea id="user_notes" name="user_notes" rows="2"
+                    placeholder="관리자에게 전달할 메모"></textarea>
+            </div>
+
+            <div class="form-actions" style="flex-direction:column;gap:8px;">
+                <button type="submit" class="btn btn-primary">
+                    ✓ {{ files|length }}개 파일 출력 신청
+                </button>
+                <a href="/upload" class="btn btn-ghost" style="text-align:center;">
+                    ← 다시 업로드
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.preview-layout {
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 24px;
+    align-items: start;
+}
+.viewer-section {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+.carousel-nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.carousel-btn {
+    width: 36px; height: 36px; border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--bg); color: var(--text);
+    font-size: 20px; cursor: pointer; transition: all .15s;
+    display: flex; align-items: center; justify-content: center;
+}
+.carousel-btn:hover:not(:disabled) { background: var(--accent); color: white; border-color: var(--accent); }
+.carousel-btn:disabled { opacity: .3; cursor: default; }
+.carousel-info { text-align: center; }
+.carousel-filename {
+    display: block; font-size: 13px; font-weight: 500; color: var(--text);
+    margin-top: 2px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#carousel-counter { font-size: 11px; color: var(--text-muted); }
+.viewer-wrap { position: relative; }
+#viewer { width: 100%; height: 420px; background: #1a1a2e; }
+#viewer-loading {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: white; font-size: 14px; pointer-events: none;
+}
+.viewer-hint {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; color: rgba(255,255,255,.4); pointer-events: none; white-space: nowrap;
+}
+.model-info-bar {
+    display: flex; gap: 24px; padding: 10px 16px;
+    font-size: 13px; color: var(--text-muted);
+    border-top: 1px solid var(--border); background: var(--bg);
+}
+
+/* Transform controls */
+.transform-bar {
+    padding: 14px 16px; border-top: 1px solid var(--border);
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+}
+.transform-group { }
+.transform-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--text-muted); margin-bottom: 8px; font-weight: 500;
+}
+.scale-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.scale-val { font-size: 13px; font-weight: 600; color: var(--accent); width: 42px; flex-shrink: 0; }
+input[type="range"] {
+    flex: 1; accent-color: var(--accent); cursor: pointer;
+}
+.reset-btn {
+    background: none; border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-muted); cursor: pointer; padding: 2px 6px; font-size: 14px;
+}
+.reset-btn:hover { color: var(--text); }
+.scale-presets { display: flex; gap: 4px; }
+.scale-presets button {
+    flex: 1; padding: 4px 0; font-size: 11px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 4px; cursor: pointer; color: var(--text-muted);
+    transition: all .15s;
+}
+.scale-presets button:hover { border-color: var(--accent); color: var(--accent); }
+
+.rot-grid {
+    display: grid; grid-template-columns: 28px 36px 36px;
+    gap: 4px; align-items: center; margin-bottom: 6px;
+}
+.rot-axis-label { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+.rot-btn {
+    width: 34px; height: 34px; border-radius: 6px;
+    border: 1px solid var(--border); background: var(--bg);
+    color: var(--text); font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all .15s;
+}
+.rot-btn:hover { background: var(--accent); color: white; border-color: var(--accent); }
+.reset-rot-btn {
+    width: 100%; padding: 5px; font-size: 12px;
+    background: none; border: 1px solid var(--border);
+    border-radius: 5px; cursor: pointer; color: var(--text-muted);
+}
+.reset-rot-btn:hover { color: var(--text); }
+
+.thumb-strip {
+    display: flex; gap: 8px; padding: 12px 16px;
+    overflow-x: auto; border-top: 1px solid var(--border);
+}
+.thumb-item {
+    flex-shrink: 0; width: 72px; padding: 8px 6px;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    text-align: center; cursor: pointer; transition: all .15s;
+}
+.thumb-item:hover, .thumb-item.active {
+    border-color: var(--accent); background: rgba(37,99,235,.06);
+}
+.thumb-icon { font-size: 20px; margin-bottom: 4px; }
+.thumb-name { font-size: 10px; color: var(--text-muted); word-break: break-all; }
+
+.submit-section {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px;
+}
+.submit-title { font-size: 15px; font-weight: 600; margin-bottom: 16px; }
+.files-summary {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px 12px; margin-bottom: 16px;
+}
+.files-summary-title {
+    font-size: 11px; color: var(--text-muted); margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: .5px;
+}
+.files-summary-item {
+    display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0;
+    overflow: hidden;
+}
+.files-summary-item span:last-child {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+@media (max-width: 768px) { .preview-layout { grid-template-columns: 1fr; } }
+</style>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script id="files-data" type="text/plain">{{ files | tojson }}</script>
+<script>
+const FILES = JSON.parse(document.getElementById('files-data').textContent);
+const BED_SIZE = 256; // Bambu A1 bed mm
+
+// Per-file transform state
+const transforms = FILES.map(() => ({ scale: 1.0, rx: 0, ry: 0, rz: 0 }));
+
+let currentIndex = 0;
+let renderer, scene, camera, grid;
+let spherical = { theta: 0.4, phi: 1.0, radius: 300 };
+let target = new THREE.Vector3();
+let isDragging = false, isRightDrag = false, prevMouse = {x:0,y:0};
+let currentMesh = null;
+let originalGeo = null; // store original geometry per model
+const geoCache = {};    // cache parsed geometries
+
+// Returns the world-space point on the focal plane (through `target`, facing the camera)
+// that is directly under the given mouse event. Returns null if the ray is parallel.
+function focalPointUnderCursor(e, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    const ndcX = ((e.clientX - rect.left) / rect.width)  *  2 - 1;
+    const ndcY = ((e.clientY - rect.top)  / rect.height) * -2 + 1;
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera({x: ndcX, y: ndcY}, camera);
+    const fwd = new THREE.Vector3().subVectors(target, camera.position).normalize();
+    const denom = ray.ray.direction.dot(fwd);
+    if (Math.abs(denom) < 0.001) return null;
+    const t = new THREE.Vector3().subVectors(target, ray.ray.origin).dot(fwd) / denom;
+    if (t <= 0) return null;
+    return ray.ray.origin.clone().addScaledVector(ray.ray.direction, t);
+}
+
+// ── Three.js init ─────────────────────────────────────────
+function initViewer() {
+    const c = document.getElementById('viewer');
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a2e);
+    camera = new THREE.PerspectiveCamera(45, c.clientWidth / c.clientHeight, 0.1, 1e6);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(c.clientWidth, c.clientHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    c.appendChild(renderer.domElement);
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const d1 = new THREE.DirectionalLight(0xffffff, 0.8); d1.position.set(1,2,3); scene.add(d1);
+    const d2 = new THREE.DirectionalLight(0x8888ff, 0.3); d2.position.set(-2,-1,-1); scene.add(d2);
+
+    // Grid = actual Bambu A1 bed (256×256 mm). Model extending past edges = won't fit.
+    grid = new THREE.GridHelper(256, 16, 0x334466, 0x223355);
+    scene.add(grid);
+
+    // Controls
+    renderer.domElement.addEventListener('mousedown', e => {
+        isDragging = true; isRightDrag = e.button === 2;
+        prevMouse = {x: e.clientX, y: e.clientY};
+    });
+    renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+    window.addEventListener('mouseup', () => isDragging = false);
+    window.addEventListener('mousemove', e => {
+        if (!isDragging) return;
+        const dx = e.clientX - prevMouse.x, dy = e.clientY - prevMouse.y;
+        prevMouse = {x: e.clientX, y: e.clientY};
+        if (isRightDrag) {
+            const s = spherical.radius * 0.001;
+            target.x -= dx * s; target.y += dy * s;
+        } else {
+            spherical.theta -= dx * 0.01;
+            spherical.phi = Math.max(0.05, Math.min(Math.PI-0.05, spherical.phi - dy * 0.01));
+        }
+        updateCamera();
+    });
+    renderer.domElement.addEventListener('wheel', e => {
+        e.preventDefault();
+        const factor = 1 + e.deltaY * 0.001;
+        const mouseWorld = focalPointUnderCursor(e, c) || target.clone();
+        const oldRadius = spherical.radius;
+        spherical.radius = Math.max(1, Math.min(1e6, oldRadius * factor));
+        // Shift target toward/away from the cursor point proportionally to zoom delta
+        target.addScaledVector(
+            new THREE.Vector3().subVectors(mouseWorld, target),
+            -(spherical.radius - oldRadius) / oldRadius
+        );
+        updateCamera();
+    }, { passive: false });
+    window.addEventListener('resize', () => {
+        const W = c.clientWidth, H = c.clientHeight;
+        camera.aspect = W/H; camera.updateProjectionMatrix(); renderer.setSize(W,H);
+    });
+    (function animate() { requestAnimationFrame(animate); renderer.render(scene,camera); })();
+}
+
+function updateCamera() {
+    camera.position.set(
+        target.x + spherical.radius * Math.sin(spherical.phi) * Math.sin(spherical.theta),
+        target.y + spherical.radius * Math.cos(spherical.phi),
+        target.z + spherical.radius * Math.sin(spherical.phi) * Math.cos(spherical.theta)
+    );
+    camera.lookAt(target);
+}
+
+// ── STL Parser ────────────────────────────────────────────
+function parseSTL(buffer) {
+    const positions = [], normals = [];
+    const tc = new Uint32Array(buffer, 80, 1)[0];
+    const isBinary = buffer.byteLength === 84 + tc * 50;
+
+    if (isBinary) {
+        const view = new DataView(buffer, 84);
+        for (let i = 0; i < tc; i++) {
+            const o = i * 50;
+            const nx=view.getFloat32(o,true), ny=view.getFloat32(o+4,true), nz=view.getFloat32(o+8,true);
+            for (let v = 0; v < 3; v++) {
+                positions.push(view.getFloat32(o+12+v*12,true), view.getFloat32(o+16+v*12,true), view.getFloat32(o+20+v*12,true));
+                normals.push(nx,ny,nz);
+            }
+        }
+    } else {
+        const text = new TextDecoder().decode(buffer);
+        const vr = /vertex\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)/g;
+        const nr = /facet normal\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)\s+([\d.eE+\-]+)/g;
+        let m;
+        while ((m=vr.exec(text))) positions.push(+m[1],+m[2],+m[3]);
+        while ((m=nr.exec(text))) for(let i=0;i<3;i++) normals.push(+m[1],+m[2],+m[3]);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('normal',   new THREE.Float32BufferAttribute(normals,   3));
+    return geo;
+}
+
+// ── Apply visual transform to mesh ────────────────────────
+function applyVisualTransform(index) {
+    if (!currentMesh) return;
+    const t = transforms[index];
+    const s = t.scale;
+
+    // Reset position first so the world-space bbox calc starts clean
+    currentMesh.position.set(0, 0, 0);
+    currentMesh.scale.set(s, s, s);
+    currentMesh.rotation.set(
+        THREE.MathUtils.degToRad(t.rx),
+        THREE.MathUtils.degToRad(t.ry),
+        THREE.MathUtils.degToRad(t.rz)
+    );
+
+    // Center on grid and floor-snap in one pass (bbox computed with position at origin)
+    const box = new THREE.Box3().setFromObject(currentMesh);
+    const cx = (box.min.x + box.max.x) / 2;
+    const cz = (box.min.z + box.max.z) / 2;
+    currentMesh.position.set(-cx, -box.min.y, -cz);
+
+    // Update hidden form inputs
+    document.getElementById(`scale-${index}`).value = s;
+    document.getElementById(`rot_x-${index}`).value = t.rx;
+    document.getElementById(`rot_y-${index}`).value = t.ry;
+    document.getElementById(`rot_z-${index}`).value = t.rz;
+    updateSizeDisplay(index);
+}
+
+function updateSizeDisplay(index) {
+    if (!originalGeo) return;
+    originalGeo.computeBoundingBox();
+    const size = new THREE.Vector3();
+    originalGeo.boundingBox.getSize(size);
+    const t = transforms[index];
+    const sx = (size.x * t.scale).toFixed(1);
+    const sy = (size.y * t.scale).toFixed(1);
+    const sz = (size.z * t.scale).toFixed(1);
+    document.getElementById('info-size').textContent = `${sx} × ${sy} × ${sz} mm`;
+
+    // Bed warning
+    const tooBig = (size.x*t.scale > BED_SIZE) || (size.y*t.scale > BED_SIZE) || (size.z*t.scale > BED_SIZE);
+    let warn = document.getElementById('bed-warning');
+    if (!warn) {
+        warn = document.createElement('div');
+        warn.id = 'bed-warning';
+        warn.style.cssText = 'background:#fef3c7;border:1px solid #f59e0b;color:#92400e;padding:10px 14px;font-size:13px;border-radius:6px;margin:10px 16px;display:flex;align-items:center;gap:8px;';
+        const infoBar = document.getElementById('model-info');
+        infoBar.parentNode.insertBefore(warn, infoBar.nextSibling);
+    }
+    if (tooBig) {
+        warn.style.display = 'flex';
+        warn.innerHTML = `⚠️ <span>출력 범위(256×256×256mm) 초과! Fusion 360 내보내기 → STL → Options → Units → <strong>Millimeters</strong> 설정 후 재업로드하거나, 크기 슬라이더로 줄이세요.</span>`;
+    } else {
+        warn.style.display = 'none';
+    }
+}
+
+// ── Scale controls ────────────────────────────────────────
+function onScaleChange(val) {
+    const pct = parseInt(val);
+    transforms[currentIndex].scale = pct / 100;
+    document.getElementById('scale-display').textContent = pct + '%';
+    applyVisualTransform(currentIndex);
+}
+function setScale(pct) {
+    document.getElementById('scale-slider').value = pct;
+    onScaleChange(pct);
+}
+function resetScale() { setScale(100); }
+
+// ── Rotation controls ─────────────────────────────────────
+function rotate(axis, deg) {
+    const t = transforms[currentIndex];
+    if (axis === 'x') t.rx = (t.rx + deg) % 360;
+    if (axis === 'y') t.ry = (t.ry + deg) % 360;
+    if (axis === 'z') t.rz = (t.rz + deg) % 360;
+    applyVisualTransform(currentIndex);
+}
+function resetRotation() {
+    const t = transforms[currentIndex];
+    t.rx = 0; t.ry = 0; t.rz = 0;
+    applyVisualTransform(currentIndex);
+}
+
+// ── Load model ────────────────────────────────────────────
+async function loadModel(index) {
+    const loading = document.getElementById('viewer-loading');
+    const infoBar = document.getElementById('model-info');
+    const transformBar = document.getElementById('transform-bar');
+    loading.style.display = 'block';
+    infoBar.style.display = 'none';
+    transformBar.style.display = 'none';
+
+    if (currentMesh) {
+        scene.remove(currentMesh);
+        currentMesh.geometry.dispose();
+        currentMesh.material.dispose();
+        currentMesh = null;
+    }
+
+    const file = FILES[index];
+    try {
+        let geo = geoCache[file.temp_id];
+        if (!geo) {
+            const res = await fetch(`/upload/stl-serve/${file.temp_id}`);
+            if (!res.ok) throw new Error('fetch ' + res.status);
+            const buf = await res.arrayBuffer();
+            geo = parseSTL(buf);
+            geo.computeBoundingBox();
+            const minY = geo.boundingBox.min.y;
+            const center = new THREE.Vector3();
+            geo.boundingBox.getCenter(center);
+            // Sit bottom of model on the grid (Y=0)
+            geo.translate(-center.x, -minY, -center.z);
+            geo.computeBoundingBox(); // recompute after translate
+            geoCache[file.temp_id] = geo;
+        }
+        originalGeo = geo;
+
+        const size = new THREE.Vector3();
+        geo.boundingBox.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        spherical = { theta: 0.4, phi: 1.0, radius: maxDim * 2.5 };
+        target.set(0, size.y / 2, 0); // look at model center, not its bottom
+        grid.position.y = 0;          // grid sits at Y=0, same as model bottom
+        updateCamera();
+
+        const mat = new THREE.MeshPhongMaterial({
+            color: 0x2563eb, specular: 0x444444, shininess: 30, side: THREE.DoubleSide
+        });
+        currentMesh = new THREE.Mesh(geo, mat);
+        scene.add(currentMesh);
+
+        // Restore this file's transform state
+        const t = transforms[index];
+        const scalePercent = Math.round(t.scale * 100);
+        document.getElementById('scale-slider').value = scalePercent;
+        document.getElementById('scale-display').textContent = scalePercent + '%';
+        applyVisualTransform(index);
+
+        // Info
+        document.getElementById('info-tris').textContent = (geo.attributes.position.count / 3).toLocaleString();
+        infoBar.style.display = 'flex';
+        transformBar.style.display = 'grid';
+        loading.style.display = 'none';
+
+    } catch(e) {
+        loading.textContent = '모델을 불러오지 못했습니다.';
+        console.error(e);
+    }
+}
+
+// ── Carousel ──────────────────────────────────────────────
+function goToModel(index) {
+    currentIndex = index;
+    document.getElementById('carousel-counter').textContent = `${index+1} / ${FILES.length}`;
+    document.getElementById('carousel-filename').textContent = FILES[index].original_name;
+    document.getElementById('prev-btn').disabled = index === 0;
+    document.getElementById('next-btn').disabled = index === FILES.length - 1;
+    document.querySelectorAll('.thumb-item').forEach((el, i) => el.classList.toggle('active', i === index));
+    loadModel(index);
+}
+function prevModel() { if (currentIndex > 0) goToModel(currentIndex - 1); }
+function nextModel() { if (currentIndex < FILES.length - 1) goToModel(currentIndex + 1); }
+window.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft') prevModel();
+    if (e.key === 'ArrowRight') nextModel();
+});
+
+initViewer();
+loadModel(0);
+</script>
+{% endblock %}

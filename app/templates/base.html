@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}HAFS PrintQueue{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="container">
+            <a href="/" class="logo">HAFS PrintQueue</a>
+            <nav>
+                {% if user %}
+                    <span class="user-info">
+                        {{ user.name }}
+                        {% if user.role.value == "admin" %}
+                            <span class="badge badge-admin">관리자</span>
+                        {% endif %}
+                    </span>
+                    <a href="/auth/logout" class="btn btn-ghost">로그아웃</a>
+                {% endif %}
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+        <div class="container">
+            <p>HAFS PrintQueue · 용인한국외국어대학교부설고등학교 메이커 시스템</p>
+            <p>By Jiu Yun & Yooan Chung</p>
+        </div>
+    </footer>
+</body>
+</html>

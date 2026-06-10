@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}내 작업 · HAFS PrintQueue{% endblock %}
+
+{% block content %}
+<section class="welcome">
+    <h1>내 작업</h1>
+    <p class="subtitle">{{ user.name }}님이 신청한 출력 작업 목록</p>
+    <div style="margin-top: 16px;">
+        <a href="/upload" class="btn btn-primary">+ 새 출력 신청</a>
+        <a href="/" class="btn btn-ghost">대시보드로</a>
+    </div>
+</section>
+
+{% if not jobs %}
+    <div class="empty-state">
+        <p>아직 신청한 출력이 없습니다.</p>
+        <a href="/upload" class="btn btn-primary">첫 번째 출력 신청하기</a>
+    </div>
+{% else %}
+    <table class="jobs-table">
+        <thead>
+            <tr>
+                <th>파일</th>
+                <th>프린터</th>
+                <th>상태</th>
+                <th>신청 시각</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in jobs %}
+                <tr>
+                    <td class="job-filename">
+                        {{ job.filename }}
+                        {% if job.user_notes %}
+                            <div class="job-notes">메모: {{ job.user_notes }}</div>
+                        {% endif %}
+                    </td>
+                    <td>{{ printers[job.printer_id].name if job.printer_id in printers else "—" }}</td>
+                    <td>
+                        <span class="status-badge job-status-{{ job.status.value }}">
+                            {% if job.status.value == "pending_approval" %}승인 대기
+                            {% elif job.status.value == "queued" %}큐 대기 중
+                            {% elif job.status.value == "printing" %}출력 중
+                            {% elif job.status.value == "completed" %}완료
+                            {% elif job.status.value == "failed" %}실패
+                            {% elif job.status.value == "rejected" %}거부됨
+                            {% elif job.status.value == "canceled" %}취소됨
+                            {% endif %}
+                        </span>
+                        {% if job.queue_position %}
+                            <small> · 큐 {{ job.queue_position }}번</small>
+                        {% endif %}
+                    </td>
+                    <td class="job-time">{{ job.created_at.strftime("%m/%d %H:%M") }}</td>
+                    <td>
+                        {% if job.status.value in ("pending_approval", "queued") %}
+                            <form method="post" action="/jobs/{{ job.id }}/cancel"
+                                  onsubmit="return confirm('이 작업을 취소할까요?');">
+                                <button type="submit" class="btn btn-ghost btn-sm"
+                                        style="color: var(--danger);">취소</button>
+                            </form>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% endif %}
+{% endblock %}

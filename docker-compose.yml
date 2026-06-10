@@ -1,0 +1,26 @@
+services:
+  printqueue:
+    build: ./app
+    container_name: printqueue
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./app:/app
+      - /usr/share/fonts:/usr/share/fonts:ro
+    environment:
+      - TZ=Asia/Seoul
+      - PYTHONUNBUFFERED=1
+      - SESSION_SECRET=${SESSION_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - ALLOWED_EMAIL_DOMAIN=hafs.hs.kr
+      - ADMIN_EMAILS=${ADMIN_EMAILS}
+      - OAUTH_REDIRECT_URI=http://localhost:8000/auth/callback
+    networks:
+      - web
+
+networks:
+  web:
+    driver: bridge

@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+
+{% block title %}관리자 · HAFS PrintQueue{% endblock %}
+
+{% block content %}
+<section class="welcome">
+    <h1>관리자 페이지</h1>
+    <p class="subtitle">출력 큐 관리 + 작업 승인</p>
+    <div style="margin-top: 16px;">
+        <a href="/" class="btn btn-ghost">대시보드로</a>
+        <a href="/admin/reports" class="btn btn-ghost">📄 출력 일지</a>
+        <form method="post" action="/admin/printers/sync" style="display:inline;">
+            <button type="submit" class="btn btn-ghost">🔄 프린터 상태 새로고침</button>
+        </form>
+        <form method="post" action="/admin/printers/snapshot" style="display:inline;">
+            <button type="submit" class="btn btn-ghost">📷 사진 새로고침</button>
+        </form>
+    </div>
+</section>
+
+{% if request.query_params.get("error") == "printer_busy" %}
+    <div class="error-message">
+        해당 프린터에 이미 출력 중인 작업이 있습니다. 완료 후 다음 작업을 시작하세요.
+    </div>
+{% endif %}
+
+{% if request.query_params.get("error") == "printer_has_jobs" %}
+    <div class="error-message">
+        출력 기록이 있는 프린터는 삭제할 수 없습니다. 기록 보호를 위해서입니다.
+    </div>
+{% endif %}
+
+<!-- 승인 대기 작업 -->
+<section>
+    <h2 class="section-title">승인 대기 작업 ({{ pending_jobs|length }})</h2>
+    {% if not pending_jobs %}
+        <div class="empty-state">
+            <p>승인 대기 중인 작업이 없습니다.</p>
+        </div>
+    {% else %}
+        <table class="jobs-table">
+            <thead>
+                <tr>
+                    <th>학생</th>
+                    <th>파일</th>
+                    <th>프린터</th>
+                    <th>신청 시각</th>
+                    <th>액션</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in pending_jobs %}
+                    <tr>
+                        <td>
+                            {{ users[job.user_id].name if job.user_id in users else "—" }}
+                            <div class="job-notes">{{ users[job.user_id].email if job.user_id in users else "" }}</div>
+                        </td>
+                        <td class="job-filename">
+                            {{ job.filename }}
+                            {% if job.user_notes %}
+                                <div class="job-notes">메모: {{ job.user_notes }}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% for p in printers %}{% if p.id == job.printer_id %}{{ p.name }}{% endif %}{% endfor %}
+                        </td>
+                        <td class="job-time">{{ job.created_at.strftime("%m/%d %H:%M") }}</td>
+                        <td>
+                            <form method="post" action="/admin/jobs/{{ job.id }}/approve" style="display: inline;">
+                                <button type="submit" class="btn btn-primary btn-sm">승인</button>
+                            </form>
+                            <form method="post" action="/admin/jobs/{{ job.id }}/reject" style="display: inline;">
+                                <button type="submit" class="btn btn-ghost btn-sm">거부</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+</section>
+
+<!-- 취소된 작업 -->
+{% if canceled_jobs %}
+<section style="margin-top: 48px;">
+    <h2 class="section-title">취소된 작업 ({{ canceled_jobs|length }})</h2>
+    <table class="jobs-table">
+        <thead>
+            <tr>
+                <th>학생</th>
+                <th>파일</th>
+                <th>프린터</th>
+                <th>신청 시각</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in canceled_jobs %}
+                <tr class="canceled-row">
+                    <td>
+                        {{ users[job.user_id].name if job.user_id in users else "—" }}
+                        <div class="job-notes">{{ users[job.user_id].email if job.user_id in users else "" }}</div>
+                    </td>
+                    <td class="job-filename">
+                        {{ job.filename }}
+                        {% if job.user_notes %}
+                            <div class="job-notes">메모: {{ job.user_notes }}</div>
+                        {% endif %}
+                    </td>
+                    <td>{% for p in printers %}{% if p.id == job.printer_id %}{{ p.name }}{% endif %}{% endfor %}</td>
+                    <td class="job-time">{{ job.created_at.strftime("%m/%d %H:%M") }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endif %}
+
+<!-- 프린터별 큐 -->
+<section style="margin-top: 48px;">
+    <h2 class="section-title">프린터별 큐</h2>
+    <div class="printer-queue-grid">
+        {% for printer in printers %}
+            <div class="printer-queue-card">
+                <div class="printer-header">
+                    <h3>{{ printer.name }}</h3>
+                    <span class="status-badge status-{{ printer.status.value }}">
+                        {% if printer.status.value == "idle" %}대기 중
+                        {% elif printer.status.value == "printing" %}출력 중{% if printer.progress is not none %} {{ printer.progress }}%{% endif %}
+                        {% elif printer.status.value == "paused" %}중지됨 (필라멘트 확인)
+                        {% elif printer.status.value == "error" %}오류
+                        {% elif printer.status.value == "offline" %}연결 안 됨
+                        {% endif %}
+                    </span>
+                </div>
+
+                <img src="/static/cam{{ printer.id }}.jpg?v={{ range(100000) | random }}"
+                     onerror="this.style.display='none'"
+                     style="width:100%; border-radius:8px; margin:8px 0; display:block;"
+                     alt="{{ printer.name }} 현재 상태">
+
+                {% if printer.nozzle_temp is not none %}
+                <div style="font-size:0.85rem; color:var(--text-muted); margin:6px 0;">🌡 노즐 {{ printer.nozzle_temp|round|int }}° / 베드 {{ printer.bed_temp|round|int }}°</div>
+                {% endif %}
+
+                <details class="printer-edit" style="margin: 8px 0 12px;">
+                    <summary style="cursor: pointer; font-size: 0.85rem; color: var(--text-muted);">정보 수정</summary>
+                    <form method="post" action="/admin/printers/{{ printer.id }}/edit" style="margin-top: 10px;">
+                        <div class="form-group">
+                            <label>이름</label>
+                            <input type="text" name="name" value="{{ printer.name }}" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Serial</label>
+                            <input type="text" name="serial" value="{{ printer.serial or '' }}" required>
+                        </div>
+                        <div class="form-group">
+                            <label>IP</label>
+                            <input type="text" name="ip" value="{{ printer.ip or '' }}" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Access Code</label>
+                            <input type="text" name="access_code" value="{{ printer.access_code or '' }}" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm">저장</button>
+                    </form>
+                    <form method="post" action="/admin/printers/{{ printer.id }}/delete" style="margin-top: 8px;" onsubmit="return confirm('정말 이 프린터를 삭제할까요? (출력 기록이 있으면 삭제되지 않습니다)');">
+                        <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--danger);">프린터 삭제</button>
+                    </form>
+                </details>
+
+                {% set jobs = printer_jobs[printer.id] %}
+                {% if not jobs %}
+                    <p class="empty-message">큐가 비어있습니다.</p>
+                {% else %}
+                    <ol class="queue-list">
+                        {% for job in jobs %}
+                            <li class="queue-item queue-status-{{ job.status.value }}">
+                                <div class="queue-item-main">
+                                    <div class="queue-item-title">
+                                        {% if job.status.value == "printing" %}
+                                            <span class="badge badge-printing">출력 중</span>
+                                        {% else %}
+                                            <span class="queue-number">#{{ job.queue_position }}</span>
+                                        {% endif %}
+                                        {{ job.filename }}
+                                    </div>
+                                    <div class="queue-item-meta">
+                                        {{ users[job.user_id].name if job.user_id in users else "—" }}
+                                        {% if job.user_notes %} · 메모: {{ job.user_notes }}{% endif %}
+                                    </div>
+                                </div>
+                                <div class="queue-item-actions">
+                                    {% if job.status.value == "queued" and loop.first %}
+                                        <form method="post" action="/admin/jobs/{{ job.id }}/start">
+                                            <select name="ams_slot" class="btn-sm" style="margin-right:4px;">
+                                                <option value="">자동 (필라멘트 슬롯)</option>
+                                                <option value="0">슬롯 0</option>
+                                                <option value="1">슬롯 1</option>
+                                                <option value="2">슬롯 2</option>
+                                                <option value="3">슬롯 3</option>
+                                            </select>
+                                            <button type="submit" class="btn btn-primary btn-sm">출력 시작</button>
+                                        </form>
+                                    {% elif job.status.value == "printing" %}
+                                        <form method="post" action="/admin/jobs/{{ job.id }}/complete" style="display: inline;">
+                                            <button type="submit" class="btn btn-primary btn-sm">완료 (베드 비움)</button>
+                                        </form>
+                                        <form method="post" action="/admin/jobs/{{ job.id }}/cancel" style="display: inline;" onsubmit="return confirm('프린터 출력을 즉시 중단할까요?');">
+                                            <button type="submit" class="btn btn-ghost btn-sm" style="color: var(--danger);">🛑 출력 중단</button>
+                                        </form>
+                                        <form method="post" action="/admin/jobs/{{ job.id }}/fail" style="display: inline;">
+                                            <button type="submit" class="btn btn-ghost btn-sm">실패</button>
+                                        </form>
+                                    {% endif %}
+                                </div>
+                            </li>
+                        {% endfor %}
+                    </ol>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </div>
+</section>
+
+<!-- 프린터 추가 -->
+<section style="margin-top: 48px;">
+    <details class="printer-add">
+        <summary class="section-title" style="cursor: pointer;">+ 프린터 추가</summary>
+        <form method="post" action="/admin/printers/add" class="upload-form" style="margin-top: 20px;">
+            <div class="form-group">
+                <label for="p_name">이름</label>
+                <input type="text" id="p_name" name="name" placeholder="예: A1-3번" required>
+            </div>
+            <div class="form-group">
+                <label for="p_serial">Serial Number</label>
+                <input type="text" id="p_serial" name="serial" placeholder="프린터 기기정보의 시리얼 번호" required>
+            </div>
+            <div class="form-group">
+                <label for="p_ip">IP 주소</label>
+                <input type="text" id="p_ip" name="ip" placeholder="예: 192.168.0.65" required>
+            </div>
+            <div class="form-group">
+                <label for="p_code">Access Code</label>
+                <input type="text" id="p_code" name="access_code" placeholder="LAN 접속 코드 8자리" required>
+                <small>프린터 네트워크 설정 화면에서 확인. Developer Mode가 켜져 있어야 출력 제어가 됩니다.</small>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">프린터 등록</button>
+            </div>
+        </form>
+    </details>
+</section>
+
+<style>
+.canceled-row td {
+    color: var(--danger, #dc2626);
+    font-style: italic;
+    text-decoration: line-through;
+    opacity: 0.75;
+}
+</style>
+{% endblock %}

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}출력 일지 · HAFS PrintQueue{% endblock %}
+
+{% block content %}
+<section class="welcome">
+    <h1>출력 일지</h1>
+    <p class="subtitle">월별 작업 내역</p>
+    <div style="margin-top: 16px;">
+        <a href="/admin" class="btn btn-ghost">← 관리자 페이지</a>
+    </div>
+</section>
+
+<section class="report-card">
+    <h2 class="section-title">기간 선택</h2>
+    <form method="get" action="/admin/reports" class="report-form" id="period-form">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="view_year">연도</label>
+                <select id="view_year" name="view_year" required onchange="document.getElementById('period-form').submit();">
+                    {% for y in year_options %}
+                        <option value="{{ y }}" {% if y == (view_year or default_year) %}selected{% endif %}>{{ y }}년</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="view_month">월</label>
+                <select id="view_month" name="view_month" required onchange="document.getElementById('period-form').submit();">
+                    {% for m in month_options %}
+                        <option value="{{ m }}" {% if m == (view_month or default_month) %}selected{% endif %}>{{ m }}월</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="form-actions" style="justify-content: flex-start;">
+            <a href="/admin/reports/excel?year={{ view_year or default_year }}&month={{ view_month or default_month }}" class="btn btn-ghost">📊 Excel 다운로드</a>
+        </div>
+    </form>
+</section>
+
+{% if report %}
+<section style="margin-top: 32px;">
+    <h2 class="section-title">{{ view_year or default_year }}년 {{ view_month or default_month }}월 작업 목록</h2>
+
+    {% if report.stats %}
+    <div class="info-box" style="margin-bottom: 20px;">
+        <strong>요약:</strong>
+        총 {{ report.stats.total }}건
+        · 완료 {{ report.stats.completed }}
+        · 실패 {{ report.stats.failed }}
+        · 거부 {{ report.stats.rejected }}
+        · 성공률 {{ report.stats.success_rate }}%
+        · 이용 학생 {{ report.stats.unique_users }}명
+    </div>
+    {% endif %}
+
+    {% if report.jobs %}
+    <div style="overflow-x: auto;">
+    <table class="report-table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>신청 일시</th>
+                <th>학생</th>
+                <th>프린터</th>
+                <th>파일명</th>
+                <th>상태</th>
+                <th>승인</th>
+                <th>시작</th>
+                <th>완료</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in report.jobs %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td>{{ job.created_at.strftime('%m-%d %H:%M') if job.created_at else "—" }}</td>
+                <td>{{ report.users[job.user_id].name if job.user_id in report.users else "—" }}</td>
+                <td>{{ report.printers[job.printer_id].name if job.printer_id in report.printers else "—" }}</td>
+                <td>{{ job.filename }}</td>
+                <td>{{ status_kr(job.status.value) }}</td>
+                <td>{{ job.approved_at.strftime('%m-%d %H:%M') if job.approved_at else "—" }}</td>
+                <td>{{ job.started_at.strftime('%m-%d %H:%M') if job.started_at else "—" }}</td>
+                <td>{{ job.completed_at.strftime('%m-%d %H:%M') if job.completed_at else "—" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    {% else %}
+        <p class="empty-message" style="margin-top: 16px;">이 달엔 작업이 없습니다.</p>
+    {% endif %}
+</section>
+{% endif %}
+
+<style>
+.report-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; background: var(--bg-elevated); }
+.report-table th, .report-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; white-space: nowrap; }
+.report-table th { background: var(--bg); font-weight: 600; color: var(--text); }
+.report-table tbody tr:hover { background: var(--bg); }
+</style>
+{% endblock %}

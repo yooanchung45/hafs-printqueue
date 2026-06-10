@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+
+{% block title %}슬라이싱 가이드 · HAFS PrintQueue{% endblock %}
+
+{% block content %}
+<section class="welcome">
+    <h1>3D 출력 처음이세요?</h1>
+    <p class="subtitle">Bambu Studio로 모델을 출력 파일(.3mf)로 만드는 방법 — 처음부터 끝까지</p>
+</section>
+
+<div class="guide-intro info-box">
+    <h3>먼저 알아두기</h3>
+    <p>3D 프린터는 <strong>STL 파일</strong>(3D 모델)을 바로 출력하지 못합니다. 프린터가 이해하는 언어로 번역하는 과정이 필요한데, 이걸 <strong>슬라이싱(slicing)</strong>이라고 합니다. 번역 결과물이 <strong>.3mf 파일</strong>이고, 이 파일을 이 사이트에 업로드하면 됩니다.</p>
+    <p class="guide-flow">
+        <span class="flow-step">STL 모델</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step flow-step--active">Bambu Studio에서 슬라이싱</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">.3mf 파일</span>
+        <span class="flow-arrow">→</span>
+        <span class="flow-step">사이트에 업로드</span>
+    </p>
+</div>
+
+<section class="guide-step">
+    <div class="guide-step__num">1</div>
+    <div class="guide-step__body">
+        <h2>Bambu Studio 설치하기</h2>
+        <p>우리 학교 프린터는 <strong>Bambu Lab A1</strong>입니다. 전용 프로그램인 Bambu Studio를 쓰면 프린터 설정이 자동으로 맞춰져서 가장 쉽습니다.</p>
+        <ol class="guide-list">
+            <li>공식 다운로드 페이지로 이동: <a href="https://bambulab.com/en/download/studio" target="_blank" rel="noopener" class="guide-link">bambulab.com/en/download/studio</a></li>
+            <li>본인 컴퓨터 운영체제에 맞는 버전 다운로드 (Windows / macOS)</li>
+            <li>다운로드한 설치 파일을 실행하고 안내에 따라 설치</li>
+            <li>설치 후 Bambu Studio 실행</li>
+        </ol>
+        <div class="guide-tip"><strong>계정 없어도 됩니다.</strong> 처음 실행 시 로그인하라고 나오지만, 슬라이싱과 .3mf 내보내기는 로그인 없이 가능합니다. 건너뛰어도 OK.</div>
+        <figure class="guide-photo">
+            <img src="/static/guide/step1.png" alt="Bambu Studio 다운로드 페이지">
+            <figcaption>Bambu Studio 다운로드 페이지</figcaption>
+        </figure>
+    </div>
+</section>
+
+<section class="guide-step">
+    <div class="guide-step__num">2</div>
+    <div class="guide-step__body">
+        <h2>프린터 선택하기</h2>
+        <p>처음 실행하면 어떤 프린터를 쓸지 물어봅니다. 여기서 <strong>Bambu Lab A1</strong>을 선택하세요. (A1 mini 아님! 그냥 <strong>A1</strong>입니다.)</p>
+        <ol class="guide-list">
+            <li>프린터 목록에서 <strong>A1</strong> 선택</li>
+            <li>노즐은 기본값 <strong>0.4mm</strong> 그대로</li>
+            <li>이미 다른 프린터로 설정돼 있다면, 왼쪽 위 프린터 아이콘을 눌러 A1로 변경</li>
+        </ol>
+        <div class="guide-tip guide-tip--warn">프린터를 잘못 고르면 출력 크기·설정이 안 맞아 실패할 수 있어요. 꼭 <strong>A1</strong>인지 확인!</div>
+        <figure class="guide-photo">
+            <img src="/static/guide/step2.png" alt="프린터를 A1으로 선택">
+            <figcaption>프린터를 A1으로 선택</figcaption>
+        </figure>
+    </div>
+</section>
+
+<section class="guide-step">
+    <div class="guide-step__num">3</div>
+    <div class="guide-step__body">
+        <h2>모델 불러오기</h2>
+        <p>출력할 3D 모델 파일(<strong>.stl</strong> 또는 .3mf, .obj, .step)을 불러옵니다.</p>
+        <ol class="guide-list">
+            <li>왼쪽 위 <strong>파일 → 가져오기(Import)</strong> 또는 모델 파일을 화면에 끌어다 놓기</li>
+            <li>화면 가운데 회색 판(베드) 위에 모델이 올라옵니다</li>
+            <li>마우스로 회전(우클릭 드래그)·확대(스크롤)하며 모델 확인</li>
+        </ol>
+        <div class="guide-tip">모델은 <a href="https://makerworld.com" target="_blank" rel="noopener" class="guide-link">MakerWorld</a>, <a href="https://www.thingiverse.com" target="_blank" rel="noopener" class="guide-link">Thingiverse</a> 등에서 무료로 받거나, 직접 모델링한 STL을 쓰면 됩니다.</div>
+        <figure class="guide-photo">
+            <img src="/static/guide/step3.png" alt="베드 위에 올라온 모델">
+            <figcaption>베드 위에 올라온 모델</figcaption>
+        </figure>
+    </div>
+</section>
+
+<section class="guide-step">
+    <div class="guide-step__num">4</div>
+    <div class="guide-step__body">
+        <h2>크기·위치 확인하기</h2>
+        <p>모델이 베드 안에 들어가는지, 너무 작거나 크지 않은지 확인합니다. A1 베드 크기는 <strong>256 × 256mm</strong>입니다.</p>
+        <ol class="guide-list">
+            <li>모델 클릭 → 왼쪽 도구에서 <strong>크기 조절(Scale)</strong>로 크기 변경 가능</li>
+            <li>모델이 베드(회색 영역)를 벗어나면 빨갛게 표시됩니다 → 크기를 줄이세요</li>
+            <li><strong>이동(Move)</strong> 도구로 베드 가운데에 배치</li>
+        </ol>
+        <div class="guide-tip guide-tip--warn">모델이 클수록 출력 시간이 길어집니다. 처음이라면 <strong>작게(5~8cm)</strong> 시작하길 추천! 큰 모델은 몇 시간씩 걸려요.</div>
+        <figure class="guide-photo">
+            <img src="/static/guide/step4.png" alt="크기 조절 도구">
+            <figcaption>크기 조절 도구</figcaption>
+        </figure>
+    </div>
+</section>
+
+<section class="guide-step">
+    <div class="guide-step__num">5</div>
+    <div class="guide-step__body">
+        <h2>필라멘트(색상) 선택하기</h2>
+        <p>어떤 색·재질로 출력할지 정합니다. 우리 프린터에는 <strong>AMS</strong>(자동 색상 교체 장치)가 달려 있어 여러 색이 들어있습니다.</p>
+        <ol class="guide-list">
+            <li>업로드 페이지나 대시보드에서 <strong>현재 프린터에 들어있는 색상</strong>을 먼저 확인하세요</li>
+            <li>오른쪽 위 필라멘트 설정에서 같은 색·재질(보통 <strong>PLA</strong>)을 선택</li>
+            <li>처음이라면 <strong>단색 한 가지</strong>로만 하는 걸 추천 (멀티컬러는 복잡해요)</li>
+        </ol>
+        <div class="guide-tip">대시보드에 표시된 AMS 색상과 다른 색을 고르면, 실제 출력 색이 달라질 수 있어요. <strong>지금 프린터에 든 색</strong>에 맞추세요.</div>
+        <figure class="guide-photo">
+            <img src="/static/guide/step5.png" alt="필라멘트 색상 재질 선택">
+            <figcaption>필라멘트 색상·재질 선택</figcaption>
+        </figure>
+    </div>
+</section>
+
+<section class="guide-step">
+    <div class="guide-step__num">6</div>
+    <div class="guide-step__body">
+        <h2>슬라이싱 하기</h2>
+        <p>이제 번역 버튼을 누를 차례입니다.</p>
+        <ol class="guide-list">
+            <li>오른쪽 위 <strong>슬라이스(Slice plate)</strong> 버튼 클릭</li>
+            <li>잠시 계산하고 나면, 화면이 출력 미리보기로 바뀝니다</li>
+            <li>예상 <strong>출력 시간</strong>과 <strong>필라멘트 사용량</strong>이 표시됩니다</li>
+        </ol>
+        <div class="guide-tip">기본 설정(레이어 0.2mm, 인필 15%)이면 대부분 잘 나옵니다. 처음엔 설정을 바꾸지 말고 <strong>기본값 그대로</strong> 두세요.</div>
+        <figure class="guide-photo">
+            <img src="/static/guide/step6.png" alt="슬라이싱 결과 미리보기">
+            <figcaption>슬라이싱 결과 미리보기</figcaption>
+        </figure>
+    </div>
+</section>
+
+<section class="guide-step">
+    <div class="guide-step__num">7</div>
+    <div class="guide-step__body">
+        <h2>.3mf 파일로 내보내기</h2>
+        <p>마지막 단계! 슬라이싱 결과를 파일로 저장합니다.</p>
+        <ol class="guide-list">
+            <li>왼쪽 위 <strong>파일(File)</strong> 메뉴 클릭</li>
+            <li><strong>플레이트의 모든 데이터를 내보내기(Export plate sliced file)</strong> 선택</li>
+            <li>파일 이름을 본인 이름이나 모델 이름으로 저장 (예: <code>luke_keychain.3mf</code>)</li>
+            <li>저장 위치를 기억하세요 — 곧 업로드할 파일입니다</li>
+        </ol>
+        <div class="guide-tip guide-tip--warn">반드시 <strong>슬라이싱을 먼저 한 뒤</strong> 내보내야 합니다. 슬라이스 안 한 파일은 출력 정보가 없어요. 6번 → 7번 순서 지키기!</div>
+        <figure class="guide-photo">
+            <img src="/static/guide/step7.png" alt=".3mf 내보내기 메뉴">
+            <figcaption>.3mf 내보내기 메뉴</figcaption>
+        </figure>
+    </div>
+</section>
+
+<section class="guide-done info-box">
+    <h3>완성! 이제 업로드하세요</h3>
+    <p>저장한 <strong>.3mf 파일</strong>을 업로드 페이지에서 올리고, 프린터를 선택한 뒤 신청하면 됩니다. 관리자 승인 후 차례가 되면 출력됩니다.</p>
+    <div class="form-actions">
+        <a href="/" class="btn btn-ghost">홈으로</a>
+        <a href="/upload" class="btn btn-primary">파일 업로드하러 가기</a>
+    </div>
+</section>
+
+<section class="guide-faq">
+    <h2>자주 묻는 문제</h2>
+    <details class="guide-qa">
+        <summary>모델이 베드보다 커요 / 빨갛게 표시돼요</summary>
+        <p>모델이 A1 출력 범위(256×256mm)를 벗어난 겁니다. 4번 단계의 크기 조절(Scale)로 크기를 줄이세요. 비율은 보통 자동으로 유지됩니다.</p>
+    </details>
+    <details class="guide-qa">
+        <summary>출력 시간이 너무 길게 나와요</summary>
+        <p>모델이 크거나 인필이 높으면 시간이 늘어납니다. 모델 크기를 줄이거나, 처음이라면 더 작은 모델로 연습하세요. 몇 시간짜리 출력은 관리자와 상의가 필요할 수 있어요.</p>
+    </details>
+    <details class="guide-qa">
+        <summary>서포트(support)가 뭔가요? 켜야 하나요?</summary>
+        <p>공중에 떠 있는 부분을 받쳐주는 임시 구조물입니다. 평평한 바닥에 잘 서는 모델은 필요 없지만, 튀어나온 부분이 많으면 켜는 게 좋습니다. 잘 모르겠으면 기본값(꺼짐)으로 출력해보고, 실패하면 서포트를 켜서 다시 시도하세요.</p>
+    </details>
+    <details class="guide-qa">
+        <summary>.3mf와 .gcode 중 뭘 올려야 하나요?</summary>
+        <p><strong>.3mf를 권장</strong>합니다. Bambu Studio에서 슬라이싱 후 내보낸 .3mf에는 색상·플레이트 정보가 모두 담겨 있어 우리 시스템·프린터와 가장 잘 맞습니다.</p>
+    </details>
+    <details class="guide-qa">
+        <summary>색을 여러 개 쓰고 싶어요</summary>
+        <p>AMS 멀티컬러는 가능하지만 설정이 복잡하고 실패 확률도 높습니다. 처음에는 단색으로 익숙해진 뒤 도전하는 걸 추천합니다. 멀티컬러가 꼭 필요하면 관리자에게 문의하세요.</p>
+    </details>
+</section>
+{% endblock %}
