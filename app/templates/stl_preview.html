@@ -593,6 +593,12 @@ window.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight') nextModel();
 });
 
+document.getElementById('confirm-form').addEventListener('submit', () => {
+    const btn = document.querySelector('#confirm-form button[type="submit"]');
+    btn.disabled = true;
+    btn.textContent = '신청 중...';
+});
+
 initViewer();
 loadModel(0);
 </script>
