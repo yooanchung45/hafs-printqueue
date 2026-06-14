@@ -166,6 +166,12 @@ nav {
     text-decoration: none;
 }
 
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
 .btn-ghost {
     background: transparent;
     color: var(--text-muted);
