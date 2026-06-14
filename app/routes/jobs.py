@@ -23,7 +23,7 @@ from typing import List
 from auth import require_user
 from config import settings
 from db import get_db
-from models import Job, JobStatus, Printer, User
+from models import FilamentSlot, Job, JobStatus, Printer, User
 
 
 router = APIRouter()
@@ -248,6 +248,44 @@ async def stl_confirm(
         return RedirectResponse(url=f"/jobs?slicing_error={msg}", status_code=303)
 
     return RedirectResponse(url="/jobs", status_code=303)
+
+
+# ── GET /printers ─────────────────────────────────────────────────────────────
+
+@router.get("/printers", response_class=HTMLResponse)
+async def printers_status(
+    request: Request,
+    user: User = Depends(require_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Printer).order_by(Printer.id))
+    printers = result.scalars().all()
+
+    printer_jobs = {}
+    for p in printers:
+        result = await db.execute(
+            select(Job)
+            .where(Job.printer_id == p.id)
+            .where(Job.status.in_([JobStatus.QUEUED, JobStatus.PRINTING]))
+            .order_by(Job.queue_position)
+        )
+        printer_jobs[p.id] = result.scalars().all()
+
+    result = await db.execute(
+        select(FilamentSlot).order_by(FilamentSlot.printer_id, FilamentSlot.slot_index)
+    )
+    slots_by_printer = {}
+    for slot in result.scalars().all():
+        slots_by_printer.setdefault(slot.printer_id, []).append(slot)
+
+    return templates.TemplateResponse("printers.html", {
+        "request": request,
+        "user": user,
+        "printers": printers,
+        "printer_jobs": printer_jobs,
+        "slots_by_printer": slots_by_printer,
+        "user_id": user.id,
+    })
 
 
 # ── GET /jobs ─────────────────────────────────────────────────────────────────

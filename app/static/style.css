@@ -2,6 +2,22 @@
    HAFS PrintQueue — 미니멀 스타일
    ============================================================ */
 
+/* ============================================================
+   Top loading bar
+   ============================================================ */
+
+#loading-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    width: 0%;
+    background: var(--accent, #2563eb);
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 1;
+}
+
 :root {
     --bg: #fafaf9;
     --bg-elevated: #ffffff;
@@ -742,3 +758,45 @@ section {
 .guide-qa p { margin: 12px 0 0; line-height: 1.7; font-size: 0.92rem; color: var(--text-muted); }
 @media (max-width: 640px) { .guide-step { flex-direction: column; gap: 12px; padding: 18px; } .guide-step__num { flex-basis: 40px; } .guide-flow { font-size: 0.78rem; } }
 .guide-cta { margin-top: 8px; font-size: 0.9rem; color: var(--text-muted); }
+
+/* ============================================================
+   프린터 조회 — user-facing printer status page
+   ============================================================ */
+
+/* Queue item highlighted as the current user's job */
+.my-queue-item {
+    background: #eff6ff;
+    border-radius: var(--radius);
+    margin: 0 -12px;
+    padding-left: 12px;
+    padding-right: 12px;
+}
+
+.my-queue-item .queue-item-title {
+    color: var(--accent);
+}
+
+.my-job-badge {
+    display: inline-block;
+    background: var(--accent);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 8px;
+    letter-spacing: 0.3px;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+/* ============================================================
+   내 작업 — queue position notice
+   ============================================================ */
+
+.queue-position-notice {
+    display: inline-block;
+    margin-top: 6px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent);
+}

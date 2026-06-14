@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}프린터 조회 · HAFS PrintQueue{% endblock %}
+
+{% block content %}
+<section class="welcome">
+    <h1>프린터 조회</h1>
+    <p class="subtitle">프린터 현황 및 대기 순서를 실시간으로 확인하세요!</p>
+    <div class="welcome-actions">
+        <a href="/" class="btn btn-ghost">← 대시보드로</a>
+        <a href="/jobs" class="btn btn-ghost">내 작업 보기</a>
+    </div>
+</section>
+
+<div class="printer-queue-grid">
+    {% for printer in printers %}
+        <div class="printer-queue-card">
+            <!-- 프린터 이름 + 상태 -->
+            <div class="printer-header">
+                <h3>{{ printer.name }}</h3>
+                <span class="status-badge status-{{ printer.status.value }}">
+                    {% if printer.status.value == "idle" %}대기 중
+                    {% elif printer.status.value == "printing" %}출력 중{% if printer.progress is not none %} {{ printer.progress }}%{% endif %}
+                    {% elif printer.status.value == "paused" %}중지됨 (필라멘트 확인)
+                    {% elif printer.status.value == "error" %}오류
+                    {% elif printer.status.value == "offline" %}연결 안 됨
+                    {% endif %}
+                </span>
+            </div>
+
+            <!-- 카메라 피드 -->
+            <img src="/static/cam{{ printer.id }}.jpg?v={{ range(100000) | random }}"
+                 onerror="this.style.display='none'"
+                 style="width:100%; border-radius:8px; margin:8px 0; display:block;"
+                 alt="{{ printer.name }} 현재 상태">
+
+            <!-- 온도 -->
+            {% if printer.nozzle_temp is not none %}
+            <div style="font-size:0.85rem; color:var(--text-muted); margin:6px 0 10px;">
+                🌡 노즐 {{ printer.nozzle_temp|round|int }}° / 베드 {{ printer.bed_temp|round|int }}°
+            </div>
+            {% endif %}
+
+            <!-- 필라멘트 슬롯 -->
+            {% set slots = slots_by_printer.get(printer.id, []) %}
+            {% if slots %}
+                <div class="ams-strip" style="margin-bottom: 12px;">
+                    {% for slot in slots %}
+                        <div class="ams-slot" title="슬롯 {{ slot.slot_index + 1 }}: {{ slot.color_name or '비어있음' }} ({{ slot.material_type or '' }})">
+                            <div class="ams-color" style="background: {{ slot.color_hex if slot.color_hex else '#f3f4f6' }}; {% if not slot.color_hex %}border: 1px dashed var(--text-muted);{% endif %}"></div>
+                            <div class="ams-label">
+                                {% if slot.is_empty %}
+                                    <span class="muted">빈 슬롯</span>
+                                {% else %}
+                                    <strong>{{ slot.material_type }}</strong>
+                                    <small>{{ slot.color_name or '' }}</small>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <!-- 대기 큐 -->
+            <div style="font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); font-weight:600; margin-bottom:8px;">대기 순서</div>
+            {% set jobs = printer_jobs[printer.id] %}
+            {% if not jobs %}
+                <p class="empty-message">현재 대기 중인 작업이 없습니다. 😴</p>
+            {% else %}
+                <ol class="queue-list" style="counter-reset: none;">
+                    {% for job in jobs %}
+                        <li class="queue-item {% if job.user_id == user_id %}my-queue-item{% endif %}">
+                            <div class="queue-item-main">
+                                <div class="queue-item-title">
+                                    {% if job.status.value == "printing" %}
+                                        <span class="badge badge-printing">출력 중</span>
+                                    {% else %}
+                                        <span class="queue-number">#{{ job.queue_position }}</span>
+                                    {% endif %}
+                                    {{ job.filename }}
+                                    {% if job.user_id == user_id %}
+                                        <span class="my-job-badge">내 작업</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </li>
+                    {% endfor %}
+                </ol>
+            {% endif %}
+        </div>
+    {% endfor %}
+</div>
+{% endblock %}

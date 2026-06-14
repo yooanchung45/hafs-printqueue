@@ -58,3 +58,7 @@ def validate():
     missing = [k for k, v in required.items() if not v]
     if missing:
         raise RuntimeError(f"Missing required env vars: {', '.join(missing)}")
+#skibiddi bop bop bop bop bop bop 
+#trallalero tralalala
+#bombardilo crocodilo
+#tung tung tung sahur 

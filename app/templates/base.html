@@ -34,5 +34,54 @@
             <p>By Jiu Yun, Yooan Chung & Siwon Choi</p>
         </div>
     </footer>
+
+    <div id="loading-bar"></div>
+    <script>
+    (function () {
+        var bar = document.getElementById('loading-bar');
+        var timer = null;
+
+        function startLoading() {
+            if (timer) clearTimeout(timer);
+            bar.style.transition = 'none';
+            bar.style.width = '0%';
+            bar.style.opacity = '1';
+            requestAnimationFrame(function () {
+                requestAnimationFrame(function () {
+                    bar.style.transition = 'width 20s cubic-bezier(0.05, 0.5, 0.1, 1)';
+                    bar.style.width = '88%';
+                });
+            });
+        }
+
+        function finishLoading() {
+            if (timer) clearTimeout(timer);
+            bar.style.transition = 'width 0.2s ease';
+            bar.style.width = '100%';
+            timer = setTimeout(function () {
+                bar.style.transition = 'opacity 0.3s ease';
+                bar.style.opacity = '0';
+            }, 200);
+        }
+
+        finishLoading();
+
+        document.addEventListener('click', function (e) {
+            var a = e.target.closest('a[href]');
+            if (!a) return;
+            var href = a.getAttribute('href');
+            if (!href || href.startsWith('#') || href.startsWith('javascript:') ||
+                a.target === '_blank' || a.hasAttribute('download')) return;
+            try {
+                var url = new URL(href, window.location.href);
+                if (url.origin === window.location.origin) startLoading();
+            } catch (err) {}
+        });
+
+        document.addEventListener('submit', function () {
+            startLoading();
+        });
+    })();
+    </script>
 </body>
 </html>
