@@ -32,8 +32,11 @@
 
         <!-- Model info bar -->
         <div class="model-info-bar" id="model-info" style="display:none">
-            <span>📐 <span id="info-size">—</span></span>
-            <span>△ <span id="info-tris">—</span> 삼각형</span>
+            <div class="model-info-row">
+                <span>📐 <span id="info-size">—</span></span>
+                <span>△ <span id="info-tris">—</span> 삼각형</span>
+            </div>
+            <div class="dim-edit-hint">✏ 숫자를 클릭하면 크기를 직접 입력할 수 있어요</div>
         </div>
 
         <!-- Transform controls -->
@@ -197,9 +200,14 @@
     font-size: 11px; color: rgba(255,255,255,.4); pointer-events: none; white-space: nowrap;
 }
 .model-info-bar {
-    display: flex; gap: 24px; padding: 10px 16px;
+    display: flex; flex-direction: column; gap: 4px; padding: 10px 16px;
     font-size: 13px; color: var(--text-muted);
     border-top: 1px solid var(--border); background: var(--bg);
+}
+.model-info-row { display: flex; gap: 24px; align-items: center; }
+.dim-edit-hint {
+    font-size: 11px; color: var(--text-muted); opacity: 0.6;
+    letter-spacing: 0.2px;
 }
 
 /* Transform controls */
@@ -286,6 +294,19 @@ input[type="range"] {
 .files-summary-item span:last-child {
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.dim-val {
+    cursor: text;
+    border-bottom: 1.5px solid var(--text-muted);
+    padding-bottom: 1px;
+    transition: color .15s, border-color .15s;
+}
+.dim-val:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.dim-input {
+    width: 56px; background: var(--bg-elevated);
+    border: 1px solid var(--accent); border-radius: 3px;
+    color: var(--text); font-size: 13px; padding: 0 4px;
+    text-align: center; outline: none;
+}
 @media (max-width: 768px) { .preview-layout { grid-template-columns: 1fr; } }
 </style>
 
@@ -305,6 +326,7 @@ let target = new THREE.Vector3();
 let isDragging = false, isRightDrag = false, prevMouse = {x:0,y:0};
 let currentMesh = null;
 let originalGeo = null; // store original geometry per model
+let origSize = null;    // unscaled bounding box size of current model
 const geoCache = {};    // cache parsed geometries
 
 // Returns the world-space point on the focal plane (through `target`, facing the camera)
@@ -457,11 +479,18 @@ function updateSizeDisplay(index) {
     originalGeo.computeBoundingBox();
     const size = new THREE.Vector3();
     originalGeo.boundingBox.getSize(size);
+    origSize = size;
     const t = transforms[index];
     const sx = (size.x * t.scale).toFixed(1);
     const sy = (size.y * t.scale).toFixed(1);
     const sz = (size.z * t.scale).toFixed(1);
-    document.getElementById('info-size').textContent = `${sx} × ${sy} × ${sz} mm`;
+    document.getElementById('info-size').innerHTML =
+        `<span class="dim-val" title="클릭하여 X 크기 직접 입력" onclick="startEditDim(this,'x')">${sx}</span>` +
+        ` × ` +
+        `<span class="dim-val" title="클릭하여 Y 크기 직접 입력" onclick="startEditDim(this,'y')">${sy}</span>` +
+        ` × ` +
+        `<span class="dim-val" title="클릭하여 Z 크기 직접 입력" onclick="startEditDim(this,'z')">${sz}</span>` +
+        ` mm`;
 
     // Bed warning
     const tooBig = (size.x*t.scale > BED_SIZE) || (size.y*t.scale > BED_SIZE) || (size.z*t.scale > BED_SIZE);
@@ -479,6 +508,43 @@ function updateSizeDisplay(index) {
     } else {
         warn.style.display = 'none';
     }
+}
+
+// ── Dimension direct-edit ─────────────────────────────────
+function startEditDim(el, axis) {
+    if (!origSize) return;
+    const origDim = origSize[axis];
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'dim-input';
+    input.value = (origDim * transforms[currentIndex].scale).toFixed(1);
+    input.min = 0.1;
+    input.step = 0.1;
+    el.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let committed = false;
+    function commit() {
+        if (committed) return;
+        committed = true;
+        const newVal = parseFloat(input.value);
+        if (!isNaN(newVal) && newVal > 0) {
+            const newScale = newVal / origDim;
+            transforms[currentIndex].scale = newScale;
+            const pct = Math.round(newScale * 100);
+            document.getElementById('scale-slider').value = Math.min(400, Math.max(1, pct));
+            document.getElementById('scale-display').textContent = pct + '%';
+            applyVisualTransform(currentIndex);
+        } else {
+            updateSizeDisplay(currentIndex);
+        }
+    }
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') input.blur();
+        if (e.key === 'Escape') { committed = true; updateSizeDisplay(currentIndex); }
+    });
 }
 
 // ── Scale controls ────────────────────────────────────────

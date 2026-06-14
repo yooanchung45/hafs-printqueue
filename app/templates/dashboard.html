@@ -4,7 +4,7 @@
 
 {% block content %}
 <section class="welcome">
-    <h1>안녕하세요, {{ user.name }} 👋</h1>
+    <h1>안녕하세요, {{ user.name }}님! 👋</h1>
     <p class="subtitle">
         {{ user.email }}
         {% if user.role.value == "admin" %}
