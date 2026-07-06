@@ -5,12 +5,35 @@
 {% block content %}
 <section class="welcome">
     <h1>3D 출력 처음이세요?</h1>
-    <p class="subtitle">Bambu Studio로 모델을 출력 파일(.3mf)로 만드는 방법 — 처음부터 끝까지</p>
+    <p class="subtitle">출력 신청 방법 선택 · Bambu Studio 슬라이싱 가이드</p>
 </section>
 
 <div class="guide-intro info-box">
-    <h3>먼저 알아두기</h3>
-    <p>3D 프린터는 <strong>STL 파일</strong>(3D 모델)을 바로 출력하지 못합니다. 프린터가 이해하는 언어로 번역하는 과정이 필요한데, 이걸 <strong>슬라이싱(slicing)</strong>이라고 합니다. 번역 결과물이 <strong>.3mf 파일</strong>이고, 이 파일을 이 사이트에 업로드하면 됩니다.</p>
+    <h3>출력 신청 방법 — 두 가지 중 선택하세요</h3>
+    <div class="guide-method-grid">
+        <div class="guide-method-card">
+            <div class="guide-method-label">방법 1 · 빠름</div>
+            <p><strong>🧊 STL 파일 직접 업로드</strong></p>
+            <p>STL 파일을 그대로 올리면 사이트가 자동으로 슬라이싱합니다. 별도 프로그램 없이 바로 신청 가능.</p>
+            <ul class="guide-method-list">
+                <li>✔ 프로그램 설치 불필요, 가장 빠름</li>
+                <li>✔ 받침대 없어도 되는 간단한 모델에 적합</li>
+                <li>✘ 서포트(지지대) 자동 추가 안 됨</li>
+            </ul>
+            <a href="/upload" class="btn btn-ghost" style="margin-top:10px; display:inline-block;">업로드 페이지로 →</a>
+        </div>
+        <div class="guide-method-card">
+            <div class="guide-method-label">방법 2 · 정밀</div>
+            <p><strong>⚙️ Bambu Studio에서 직접 슬라이싱</strong></p>
+            <p>Bambu Studio에서 직접 슬라이싱 후 <strong>.3mf 파일</strong>을 업로드합니다. 아래 가이드를 따라하세요.</p>
+            <ul class="guide-method-list">
+                <li>✔ 서포트 직접 설정 가능</li>
+                <li>✔ 크기·방향·속도 세밀하게 조절</li>
+                <li>✘ Bambu Studio 설치 필요</li>
+            </ul>
+        </div>
+    </div>
+    <p style="margin-top:20px; font-size:0.9rem; color:var(--text-muted);">아래는 <strong>방법 2 (Bambu Studio 슬라이싱)</strong> 상세 가이드입니다.</p>
     <p class="guide-flow">
         <span class="flow-step">STL 모델</span>
         <span class="flow-arrow">→</span>
@@ -21,6 +44,39 @@
         <span class="flow-step">사이트에 업로드</span>
     </p>
 </div>
+
+<style>
+.guide-method-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 14px;
+}
+.guide-method-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+}
+.guide-method-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--accent);
+    margin-bottom: 8px;
+}
+.guide-method-card p { margin-bottom: 8px; font-size: 0.9rem; }
+.guide-method-list {
+    margin: 8px 0 0 16px;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--text-muted);
+}
+@media (max-width: 640px) {
+    .guide-method-grid { grid-template-columns: 1fr; }
+}
+</style>
 
 <section class="guide-step">
     <div class="guide-step__num">1</div>
@@ -174,8 +230,8 @@
         <p>공중에 떠 있는 부분을 받쳐주는 임시 구조물입니다. 평평한 바닥에 잘 서는 모델은 필요 없지만, 튀어나온 부분이 많으면 켜는 게 좋습니다. 잘 모르겠으면 기본값(꺼짐)으로 출력해보고, 실패하면 서포트를 켜서 다시 시도하세요.</p>
     </details>
     <details class="guide-qa">
-        <summary>.3mf와 .gcode 중 뭘 올려야 하나요?</summary>
-        <p><strong>.3mf를 권장</strong>합니다. Bambu Studio에서 슬라이싱 후 내보낸 .3mf에는 색상·플레이트 정보가 모두 담겨 있어 우리 시스템·프린터와 가장 잘 맞습니다.</p>
+        <summary>Bambu Studio로 슬라이싱했는데 어떤 파일을 올려야 하나요?</summary>
+        <p><strong>.3mf 파일</strong>을 올려주세요. 파일 메뉴 → <strong>플레이트의 모든 데이터를 내보내기(Export plate sliced file)</strong>로 저장한 파일입니다. .3mf에는 색상·플레이트 정보가 모두 담겨 있어 우리 시스템·프린터와 가장 잘 맞습니다.</p>
     </details>
     <details class="guide-qa">
         <summary>색을 여러 개 쓰고 싶어요</summary>

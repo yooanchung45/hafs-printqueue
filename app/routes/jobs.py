@@ -31,7 +31,7 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 _filters.register(templates)
 
-ALLOWED_EXTENSIONS = {".3mf", ".gcode"}
+ALLOWED_EXTENSIONS = {".3mf"}
 ALLOWED_STL = {".stl"}
 MAX_FILE_SIZE = 200 * 1024 * 1024  # 200MB
 

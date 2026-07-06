@@ -36,6 +36,22 @@
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
+[data-theme="dark"] {
+    --bg: #0f1117;
+    --bg-elevated: #1a1d27;
+    --text: #e5e7eb;
+    --text-muted: #9ca3af;
+    --border: #2d3142;
+    --accent: #3b82f6;
+    --accent-hover: #60a5fa;
+    --danger: #f87171;
+    --success: #34d399;
+    --warning: #fbbf24;
+    --admin: #a78bfa;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+}
+
 * {
     box-sizing: border-box;
     margin: 0;
@@ -686,6 +702,7 @@ section {
     height: 36px;
     border-radius: 6px;
     border: 1px solid rgba(0, 0, 0, 0.1);
+    filter: brightness(1.25);
 }
 
 .ams-label {
@@ -806,5 +823,108 @@ section {
     margin-top: 6px;
     font-size: 13px;
     font-weight: 700;
+    color: var(--accent);
+}
+
+/* ============================================================
+   Dark mode overrides for hardcoded colours
+   ============================================================ */
+
+[data-theme="dark"] .error-message {
+    background: rgba(220, 38, 38, 0.15);
+    border-color: rgba(220, 38, 38, 0.4);
+}
+
+[data-theme="dark"] .status-idle {
+    background: rgba(5, 150, 105, 0.2);
+}
+
+[data-theme="dark"] .status-printing {
+    background: rgba(37, 99, 235, 0.2);
+}
+
+[data-theme="dark"] .status-error {
+    background: rgba(220, 38, 38, 0.2);
+}
+
+[data-theme="dark"] .status-paused {
+    background: rgba(217, 119, 6, 0.2);
+    color: #fbbf24;
+}
+
+[data-theme="dark"] .status-offline {
+    background: rgba(107, 114, 128, 0.2);
+}
+
+[data-theme="dark"] .info-box {
+    background: rgba(3, 105, 161, 0.1);
+    border-color: rgba(3, 105, 161, 0.35);
+}
+
+[data-theme="dark"] .info-box h3 {
+    color: #60b4e8;
+}
+
+[data-theme="dark"] .job-status-pending_approval {
+    background: rgba(217, 119, 6, 0.2);
+}
+
+[data-theme="dark"] .job-status-queued {
+    background: rgba(79, 70, 229, 0.2);
+    color: #a5b4fc;
+}
+
+[data-theme="dark"] .job-status-printing {
+    background: rgba(37, 99, 235, 0.2);
+}
+
+[data-theme="dark"] .job-status-completed {
+    background: rgba(5, 150, 105, 0.2);
+}
+
+[data-theme="dark"] .job-status-failed,
+[data-theme="dark"] .job-status-rejected {
+    background: rgba(220, 38, 38, 0.2);
+}
+
+[data-theme="dark"] .job-status-canceled {
+    background: rgba(107, 114, 128, 0.2);
+}
+
+[data-theme="dark"] .queue-status-printing {
+    background: rgba(37, 99, 235, 0.12);
+}
+
+[data-theme="dark"] .flow-step--active {
+    background: rgba(37, 99, 235, 0.15);
+}
+
+[data-theme="dark"] .guide-tip {
+    background: rgba(37, 99, 235, 0.1);
+}
+
+[data-theme="dark"] .guide-tip--warn {
+    background: rgba(217, 119, 6, 0.1);
+}
+
+[data-theme="dark"] .my-queue-item {
+    background: rgba(37, 99, 235, 0.12);
+}
+
+/* Dark mode toggle button */
+.theme-toggle {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    padding: 5px 9px;
+    font-size: 15px;
+    color: var(--text-muted);
+    line-height: 1;
+    transition: border-color 0.15s, color 0.15s;
+}
+
+.theme-toggle:hover {
+    border-color: var(--accent);
     color: var(--accent);
 }

@@ -11,7 +11,7 @@
 {% if error %}
 <div class="error-message">
     {% if error == "no_files" %}파일을 선택해주세요.
-    {% elif error == "invalid_extension" %}STL, .3mf, .gcode 파일만 업로드할 수 있습니다.
+    {% elif error == "invalid_extension" %}STL 또는 .3mf 파일만 업로드할 수 있습니다.
     {% elif error == "invalid_printer" %}잘못된 프린터입니다.
     {% elif error == "file_too_large" %}파일이 너무 큽니다 (최대 200MB).
     {% elif error == "no_stl_files" %}STL 파일이 없습니다.
@@ -42,7 +42,7 @@
             <div id="stl-file-list" class="file-list" style="display:none;"></div>
             <div class="stl-notice">
                 ⚠ 이 기능은 <strong>서포트(지지대)를 자동으로 추가하지 않습니다.</strong>
-                서포트가 필요한 모델은 Bambu Studio / OrcaSlicer에서 직접 슬라이싱 후
+                서포트가 필요한 모델은 Bambu Studio에서 직접 슬라이싱 후
                 오른쪽의 <strong>.3mf 경로</strong>로 업로드하세요.
             </div>
             <button type="submit" class="btn btn-primary btn-full" id="stl-submit" disabled>
@@ -57,16 +57,16 @@
             <div class="path-icon">⚙️</div>
             <div>
                 <div class="path-title">슬라이싱된 파일 업로드</div>
-                <div class="path-desc">.3mf 또는 .gcode — 바로 큐 신청</div>
+                <div class="path-desc">.3mf — 바로 큐 신청</div>
             </div>
         </div>
 
         <form id="sliced-form" method="post" action="/upload" enctype="multipart/form-data">
             <label class="drop-zone" id="sliced-drop">
-                <input type="file" name="files" id="sliced-input" accept=".3mf,.gcode" multiple required>
+                <input type="file" name="files" id="sliced-input" accept=".3mf" multiple required>
                 <div class="drop-icon" id="sliced-icon">📁</div>
-                <div class="drop-text" id="sliced-text">.3mf / .gcode 파일을 여기에 끌어다 놓거나 클릭</div>
-                <div class="drop-hint">여러 파일 동시 선택 가능 · Bambu Studio 또는 OrcaSlicer에서 내보낸 파일</div>
+                <div class="drop-text" id="sliced-text">.3mf 파일을 여기에 끌어다 놓거나 클릭</div>
+                <div class="drop-hint">여러 파일 동시 선택 가능 · Bambu Studio에서 슬라이싱 후 내보낸 파일</div>
             </label>
             <div class="form-group">
                 <label>프린터 선택</label>
@@ -304,7 +304,7 @@ const slicedText  = document.getElementById('sliced-text');
 const slicedSubmitBtn = document.getElementById('sliced-submit');
 
 function setSlicedFiles(fileList) {
-    const valid = Array.from(fileList).filter(f => /\.(3mf|gcode)$/i.test(f.name));
+    const valid = Array.from(fileList).filter(f => /\.3mf$/i.test(f.name));
     if (!valid.length) return;
     const dt = new DataTransfer();
     valid.forEach(f => dt.items.add(f));

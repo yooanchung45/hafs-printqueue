@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="ko" data-theme="">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,6 +9,7 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/static/favicon-180x180.png">
+    <script>(function(){var t=localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);})();</script>
 </head>
 <body>
     <header class="site-header">
@@ -22,6 +23,9 @@
                             <span class="badge badge-admin">관리자</span>
                         {% endif %}
                     </span>
+                {% endif %}
+                <button class="theme-toggle" id="theme-toggle" aria-label="다크/라이트 모드 전환" title="다크/라이트 모드">☀</button>
+                {% if user %}
                     <a href="/auth/logout" class="btn btn-ghost">로그아웃</a>
                 {% endif %}
             </nav>
@@ -40,6 +44,25 @@
     </footer>
 
     <div id="loading-bar"></div>
+    <script>
+    (function () {
+        var html = document.documentElement;
+        var btn = document.getElementById('theme-toggle');
+
+        function syncBtn() {
+            btn.textContent = html.getAttribute('data-theme') === 'dark' ? '☾' : '☀';
+        }
+
+        syncBtn();
+
+        btn.addEventListener('click', function () {
+            var dark = html.getAttribute('data-theme') !== 'dark';
+            html.setAttribute('data-theme', dark ? 'dark' : 'light');
+            localStorage.setItem('theme', dark ? 'dark' : 'light');
+            syncBtn();
+        });
+    })();
+    </script>
     <script>
     (function () {
         var bar = document.getElementById('loading-bar');
