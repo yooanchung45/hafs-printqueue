@@ -1,0 +1,17 @@
+name: Deploy to rpi
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    steps:
+      - name: Pull latest and deploy
+        run: |
+          cd /srv/printqueue
+          git fetch origin main
+          git reset --hard origin/main
+          chmod +x deploy.sh
+          ./deploy.sh
