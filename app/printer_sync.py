@@ -26,6 +26,9 @@ async def sync_printer(db, printer):
         status = client.get_status()
     except Exception as e:
         logger.warning("sync 실패 %s: %s", printer.name, e)
+        printer.status = PrinterStatus.OFFLINE
+        printer.progress = None
+        await db.commit()
         return
 
     # 프린터 상태 갱신
