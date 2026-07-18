@@ -101,9 +101,10 @@ class PrinterClient:
         try:
             printer = self._connect()
             state = printer.get_state()
-            if state is None:
-                return PrinterStatusInfo(online=False, state="OFFLINE", error="No response after MQTT connect")
-            info = PrinterStatusInfo(online=True, state=str(state).upper())
+            state_str = state.value.upper() if hasattr(state, 'value') else (str(state).upper() if state else None)
+            if not state_str or state_str in ("UNKNOWN", "OFFLINE"):
+                return PrinterStatusInfo(online=False, state="OFFLINE", error=f"Printer unreachable (state={state_str})")
+            info = PrinterStatusInfo(online=True, state=state_str)
             try: info.percentage = int(printer.get_percentage())
             except Exception: pass
             try: info.remaining_minutes = int(printer.get_time())
