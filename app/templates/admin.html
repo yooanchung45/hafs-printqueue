@@ -548,9 +548,42 @@ document.addEventListener('click', function(e) {
 <script type="module">
 import * as THREE from 'three';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+import { ThreeMFLoader } from 'three/addons/loaders/3MFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 let renderer, controls;
+
+function _setupScene(canvas) {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setSize(w, h, false);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111111);
+    const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 10000);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    dir.position.set(1, 1, 1);
+    scene.add(dir);
+    controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    return { scene, camera };
+}
+
+function _fitCamera(object, camera) {
+    const box = new THREE.Box3().setFromObject(object);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    object.position.sub(center);
+    camera.position.set(0, 0, Math.max(size.x, size.y, size.z) * 2);
+    controls.update();
+}
+
+function _animate() {
+    if (!renderer) return;
+    requestAnimationFrame(_animate);
+    controls.update();
+    renderer.render(..._animate._args);
+}
 
 window.openStlPreview = function(jobId, filename) {
     const modal = document.getElementById('stl-modal');
@@ -558,64 +591,59 @@ window.openStlPreview = function(jobId, filename) {
     modal.classList.add('open');
 
     const canvas = document.getElementById('stl-canvas');
-    const w = canvas.clientWidth, h = canvas.clientHeight;
+    const { scene, camera } = _setupScene(canvas);
+    _animate._args = [scene, camera];
 
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    renderer.setSize(w, h, false);
+    const isBambu = filename.toLowerCase().endsWith('.gcode.3mf');
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x111111);
+    if (isBambu) {
+        new ThreeMFLoader().load(
+            '/admin/jobs/' + jobId + '/3mf-preview',
+            obj => {
+                obj.rotation.x = -Math.PI / 2;
+                _fitCamera(obj, camera);
+                scene.add(obj);
+            },
+            undefined,
+            () => {
+                document.getElementById('stl-modal-hint').textContent =
+                    '3MF 미리보기를 불러올 수 없습니다';
+            }
+        );
+        document.getElementById('stl-modal-hint').textContent =
+            '드래그: 회전 · 스크롤: 줌 · Bambu Studio 파일';
+    } else {
+        new STLLoader().load(
+            '/admin/jobs/' + jobId + '/stl',
+            geo => {
+                geo.computeVertexNormals();
+                const mesh = new THREE.Mesh(
+                    geo,
+                    new THREE.MeshPhongMaterial({ color: 0x4a9eff, specular: 0x222222 })
+                );
+                mesh.rotation.x = -Math.PI / 2;
+                _fitCamera(mesh, camera);
+                scene.add(mesh);
+            },
+            undefined,
+            () => {
+                document.getElementById('stl-modal-hint').textContent =
+                    'STL 미리보기를 불러올 수 없습니다 (직접 업로드된 .3mf 파일)';
+            }
+        );
+        document.getElementById('stl-modal-hint').textContent =
+            '드래그: 회전 · 스크롤: 줌';
+    }
 
-    const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 10000);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
-    dir.position.set(1, 1, 1);
-    scene.add(dir);
-
-    controls = new OrbitControls(camera, canvas);
-    controls.enableDamping = true;
-
-    new STLLoader().load(
-        '/admin/jobs/' + jobId + '/stl',
-        geo => {
-            geo.computeVertexNormals();
-            const mesh = new THREE.Mesh(
-                geo,
-                new THREE.MeshPhongMaterial({ color: 0x4a9eff, specular: 0x222222 })
-            );
-            // Apply the same Y-up rotation the upload preview uses
-            mesh.rotation.x = -Math.PI / 2;
-            const box = new THREE.Box3().setFromObject(mesh);
-            const center = box.getCenter(new THREE.Vector3());
-            const size = box.getSize(new THREE.Vector3());
-            mesh.position.sub(center);
-            camera.position.set(0, 0, Math.max(size.x, size.y, size.z) * 2);
-            controls.update();
-            scene.add(mesh);
-        },
-        undefined,
-        () => {
-            document.getElementById('stl-modal-hint').textContent =
-                'STL 미리보기를 불러올 수 없습니다 (직접 업로드된 .3mf 파일)';
-        }
-    );
-
-    (function animate() {
-        if (!renderer) return;
-        requestAnimationFrame(animate);
-        controls.update();
-        renderer.render(scene, camera);
-    })();
+    _animate();
 };
 
 window.closeStlPreview = function() {
     document.getElementById('stl-modal').classList.remove('open');
-    document.getElementById('stl-modal-hint').textContent =
-        '드래그: 회전 · 스크롤: 줌 · .3mf 직접 업로드 파일은 미리보기 없음';
+    document.getElementById('stl-modal-hint').textContent = '드래그: 회전 · 스크롤: 줌';
     if (renderer) { renderer.dispose(); renderer = null; }
 };
 
-// Wire close button and backdrop click here, after closeStlPreview is defined
 document.getElementById('stl-modal-close').addEventListener('click', window.closeStlPreview);
 document.getElementById('stl-modal').addEventListener('click', function(e) {
     if (e.target === this) window.closeStlPreview();

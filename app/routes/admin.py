@@ -486,6 +486,20 @@ async def admin_stl_preview(
     return FileResponse(str(stl_path), media_type="application/octet-stream")
 
 
+@router.get("/jobs/{job_id}/3mf-preview")
+async def admin_3mf_preview(
+    job_id: int,
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bambu Studio .gcode.3mf를 Three.js ThreeMFLoader용으로 서빙."""
+    from pathlib import Path as _Path
+    job = await _get_job_or_404(db, job_id)
+    if not job.file_path or not _Path(job.file_path).exists():
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
+    return FileResponse(str(job.file_path), media_type="application/octet-stream")
+
+
 @router.post("/jobs/{job_id}/cancel")
 async def cancel_job(
     job_id: int,
