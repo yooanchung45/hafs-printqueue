@@ -23,7 +23,7 @@
                     {% elif printer.status.value == "printing" %}출력 중{% if printer.progress is not none %} {{ printer.progress }}%{% endif %}
                     {% elif printer.status.value == "paused" %}중지됨 (필라멘트 확인)
                     {% elif printer.status.value == "error" %}오류
-                    {% elif printer.status.value == "offline" %}연결 안 됨
+                    {% elif printer.status.value == "offline" %}오프라인
                     {% endif %}
                 </span>
             </div>
