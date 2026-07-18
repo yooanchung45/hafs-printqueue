@@ -25,7 +25,7 @@
         <div class="guide-method-card">
             <div class="guide-method-label">방법 2 · 정밀</div>
             <p><strong>⚙️ Bambu Studio에서 직접 슬라이싱</strong></p>
-            <p>Bambu Studio에서 직접 슬라이싱 후 <strong>.3mf 파일</strong>을 업로드합니다. 아래 가이드를 따라하세요.</p>
+            <p>Bambu Studio에서 직접 슬라이싱 후 <strong>.gcode.3mf 파일</strong>을 업로드합니다. 아래 가이드를 따라하세요.</p>
             <ul class="guide-method-list">
                 <li>✔ 서포트 직접 설정 가능</li>
                 <li>✔ 크기·방향·속도 세밀하게 조절</li>
@@ -39,7 +39,7 @@
         <span class="flow-arrow">→</span>
         <span class="flow-step flow-step--active">Bambu Studio에서 슬라이싱</span>
         <span class="flow-arrow">→</span>
-        <span class="flow-step">.3mf 파일</span>
+        <span class="flow-step">.gcode.3mf 파일</span>
         <span class="flow-arrow">→</span>
         <span class="flow-step">사이트에 업로드</span>
     </p>
@@ -89,7 +89,7 @@
             <li>다운로드한 설치 파일을 실행하고 안내에 따라 설치</li>
             <li>설치 후 Bambu Studio 실행</li>
         </ol>
-        <div class="guide-tip"><strong>계정 없어도 됩니다.</strong> 처음 실행 시 로그인하라고 나오지만, 슬라이싱과 .3mf 내보내기는 로그인 없이 가능합니다. 건너뛰어도 OK.</div>
+        <div class="guide-tip"><strong>계정 없어도 됩니다.</strong> 처음 실행 시 로그인하라고 나오지만, 슬라이싱과 .gcode.3mf 내보내기는 로그인 없이 가능합니다. 건너뛰어도 OK.</div>
         <figure class="guide-photo">
             <img src="/static/guide/step1.png" alt="Bambu Studio 다운로드 페이지">
             <figcaption>Bambu Studio 다운로드 페이지</figcaption>
@@ -190,25 +190,25 @@
 <section class="guide-step">
     <div class="guide-step__num">7</div>
     <div class="guide-step__body">
-        <h2>.3mf 파일로 내보내기</h2>
+        <h2>.gcode.3mf 파일로 내보내기</h2>
         <p>마지막 단계! 슬라이싱 결과를 파일로 저장합니다.</p>
         <ol class="guide-list">
             <li>왼쪽 위 <strong>파일(File)</strong> 메뉴 클릭</li>
             <li><strong>플레이트의 모든 데이터를 내보내기(Export plate sliced file)</strong> 선택</li>
-            <li>파일 이름을 본인 이름이나 모델 이름으로 저장 (예: <code>luke_keychain.3mf</code>)</li>
+            <li>파일 이름을 본인 이름이나 모델 이름으로 저장 (예: <code>luke_keychain.gcode.3mf</code>)</li>
             <li>저장 위치를 기억하세요 — 곧 업로드할 파일입니다</li>
         </ol>
         <div class="guide-tip guide-tip--warn">반드시 <strong>슬라이싱을 먼저 한 뒤</strong> 내보내야 합니다. 슬라이스 안 한 파일은 출력 정보가 없어요. 6번 → 7번 순서 지키기!</div>
         <figure class="guide-photo">
-            <img src="/static/guide/step7.png" alt=".3mf 내보내기 메뉴">
-            <figcaption>.3mf 내보내기 메뉴</figcaption>
+            <img src="/static/guide/step7.png" alt=".gcode.3mf 내보내기 메뉴">
+            <figcaption>.gcode.3mf 내보내기 메뉴</figcaption>
         </figure>
     </div>
 </section>
 
 <section class="guide-done info-box">
     <h3>완성! 이제 업로드하세요</h3>
-    <p>저장한 <strong>.3mf 파일</strong>을 업로드 페이지에서 올리고, 프린터를 선택한 뒤 신청하면 됩니다. 관리자 승인 후 차례가 되면 출력됩니다.</p>
+    <p>저장한 <strong>.gcode.3mf 파일</strong>을 업로드 페이지에서 올리고, 프린터를 선택한 뒤 신청하면 됩니다. 관리자 승인 후 차례가 되면 출력됩니다.</p>
     <div class="form-actions">
         <a href="/" class="btn btn-ghost">홈으로</a>
         <a href="/upload" class="btn btn-primary">파일 업로드하러 가기</a>
@@ -231,7 +231,7 @@
     </details>
     <details class="guide-qa">
         <summary>Bambu Studio로 슬라이싱했는데 어떤 파일을 올려야 하나요?</summary>
-        <p><strong>.3mf 파일</strong>을 올려주세요. 파일 메뉴 → <strong>플레이트의 모든 데이터를 내보내기(Export plate sliced file)</strong>로 저장한 파일입니다. .3mf에는 색상·플레이트 정보가 모두 담겨 있어 우리 시스템·프린터와 가장 잘 맞습니다.</p>
+        <p><strong>.gcode.3mf 파일</strong>을 올려주세요. 파일 메뉴 → <strong>플레이트의 모든 데이터를 내보내기(Export plate sliced file)</strong>로 저장한 파일입니다. .gcode.3mf에는 색상·플레이트 정보가 모두 담겨 있어 우리 시스템·프린터와 가장 잘 맞습니다.</p>
     </details>
     <details class="guide-qa">
         <summary>색을 여러 개 쓰고 싶어요</summary>
