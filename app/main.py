@@ -1,5 +1,6 @@
 """FastAPI 진입점."""
 import random
+import re
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -117,10 +118,11 @@ async def index(request: Request):
         for job in result.scalars().all():
             printer_jobs[job.printer_id].append(job)
 
-        if "이서우" in user.name:
+        real_name = re.sub(r'^\d+', '', user.name)
+        if "이서우" in real_name:
             greeting = "sw💘"
         else: 
-            greeting = random.choice(_GREETINGS).format(name=user.name)
+            greeting = random.choice(_GREETINGS).format(name=real_name)
         return templates.TemplateResponse(
             "dashboard.html",
             {
