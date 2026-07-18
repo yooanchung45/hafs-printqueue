@@ -71,7 +71,7 @@
                     {% for job in jobs %}
                         <li class="queue-item {% if job.user_id == user_id %}my-queue-item{% endif %}">
                             <div class="queue-item-main">
-                                <div class="queue-item-title">
+                                <div class="queue-item-title" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                                     {% if job.status.value == "printing" %}
                                         <span class="badge badge-printing">출력 중</span>
                                     {% else %}
@@ -81,6 +81,9 @@
                                     {% if job.user_id == user_id %}
                                         <span class="my-job-badge">내 작업</span>
                                     {% endif %}
+                                    <button class="btn btn-ghost btn-sm preview-btn"
+                                            data-job-id="{{ job.id }}"
+                                            data-filename="{{ job.filename }}">미리보기</button>
                                 </div>
                             </div>
                         </li>
@@ -90,4 +93,183 @@
         </div>
     {% endfor %}
 </div>
+
+<style>
+#preview-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+#preview-modal.open { display: flex; }
+#preview-modal-inner {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    width: 680px;
+    max-width: 95vw;
+    position: relative;
+}
+#preview-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+}
+#preview-modal-title { font-weight: 600; font-size: 15px; }
+#preview-modal-close {
+    background: none;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    color: var(--text-muted);
+    line-height: 1;
+}
+#preview-canvas {
+    width: 100%;
+    height: 420px;
+    border-radius: 6px;
+    background: #111;
+    display: block;
+}
+#preview-hint {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+</style>
+
+<div id="preview-modal" role="dialog" aria-modal="true">
+    <div id="preview-modal-inner">
+        <div id="preview-modal-header">
+            <span id="preview-modal-title"></span>
+            <button id="preview-modal-close" aria-label="닫기">✕</button>
+        </div>
+        <canvas id="preview-canvas"></canvas>
+        <p id="preview-hint">드래그: 회전 · 스크롤: 줌</p>
+    </div>
+</div>
+
+<script>
+document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.preview-btn');
+    if (btn) window.openPreview && window.openPreview(btn.dataset.jobId, btn.dataset.filename);
+});
+</script>
+
+<script type="importmap">
+{"imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+let renderer, controls;
+
+function _setupScene(canvas) {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setSize(w, h, false);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111111);
+    const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 10000);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    dir.position.set(1, 1, 1);
+    scene.add(dir);
+    controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    return { scene, camera };
+}
+
+function _fitCamera(object, camera) {
+    const box = new THREE.Box3().setFromObject(object);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    object.position.sub(center);
+    camera.position.set(0, 0, Math.max(size.x, size.y, size.z) * 2);
+    controls.update();
+}
+
+function _animate() {
+    if (!renderer) return;
+    requestAnimationFrame(_animate);
+    controls.update();
+    renderer.render(..._animate._args);
+}
+
+window.openPreview = function(jobId, filename) {
+    const modal = document.getElementById('preview-modal');
+    document.getElementById('preview-modal-title').textContent = filename;
+    modal.classList.add('open');
+
+    const canvas = document.getElementById('preview-canvas');
+    const { scene, camera } = _setupScene(canvas);
+    _animate._args = [scene, camera];
+
+    const isBambu = filename.toLowerCase().endsWith('.gcode.3mf');
+
+    if (isBambu) {
+        if (renderer) { renderer.dispose(); renderer = null; }
+        canvas.style.display = 'none';
+        let img = document.getElementById('preview-thumb-img');
+        if (!img) {
+            img = document.createElement('img');
+            img.id = 'preview-thumb-img';
+            img.style.cssText = 'width:100%;height:420px;object-fit:contain;border-radius:6px;background:#111;display:block;';
+            canvas.parentNode.insertBefore(img, canvas.nextSibling);
+        }
+        img.style.display = 'block';
+        img.src = '/jobs/' + jobId + '/thumb';
+        img.onerror = () => {
+            document.getElementById('preview-hint').textContent = '미리보기를 불러올 수 없습니다';
+        };
+        document.getElementById('preview-hint').textContent = 'Bambu Studio 미리보기 이미지';
+    } else {
+        new STLLoader().load(
+            '/jobs/' + jobId + '/stl-preview',
+            geo => {
+                geo.computeVertexNormals();
+                const mesh = new THREE.Mesh(
+                    geo,
+                    new THREE.MeshPhongMaterial({ color: 0x4a9eff, specular: 0x222222 })
+                );
+                mesh.rotation.x = -Math.PI / 2;
+                _fitCamera(mesh, camera);
+                scene.add(mesh);
+            },
+            undefined,
+            () => {
+                document.getElementById('preview-hint').textContent =
+                    'STL 미리보기를 불러올 수 없습니다';
+            }
+        );
+        document.getElementById('preview-hint').textContent = '드래그: 회전 · 스크롤: 줌';
+    }
+
+    _animate();
+};
+
+window.closePreview = function() {
+    document.getElementById('preview-modal').classList.remove('open');
+    document.getElementById('preview-hint').textContent = '드래그: 회전 · 스크롤: 줌';
+    if (renderer) { renderer.dispose(); renderer = null; }
+    const img = document.getElementById('preview-thumb-img');
+    if (img) img.style.display = 'none';
+    document.getElementById('preview-canvas').style.display = 'block';
+};
+
+document.getElementById('preview-modal-close').addEventListener('click', window.closePreview);
+document.getElementById('preview-modal').addEventListener('click', function(e) {
+    if (e.target === this) window.closePreview();
+});
+</script>
 {% endblock %}

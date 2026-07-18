@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, Response, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -387,3 +387,50 @@ async def cancel_job(
         await db.commit()
 
     return RedirectResponse(url="/jobs", status_code=303)
+
+@router.get("/jobs/{job_id}/stl-preview")
+async def job_stl_file(
+    job_id: int,
+    _: User = Depends(require_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Serve the original STL for Three.js preview (owner only)."""
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404)
+    stl_path = Path(job.file_path).with_suffix(".stl")
+    if not stl_path.exists():
+        raise HTTPException(status_code=404, detail="STL not available")
+
+    return FileResponse(str(stl_path), media_type="application/octet-stream")
+
+
+@router.get("/jobs/{job_id}/thumb")
+async def job_thumb(
+    job_id: int,
+    _: User = Depends(require_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Extract the PNG thumbnail from a Bambu Studio .gcode.3mf (owner only)."""
+    import zipfile
+
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalar_one_or_none()
+    if job is None:
+        raise HTTPException(status_code=404)
+    if not job.file_path or not Path(job.file_path).exists():
+        raise HTTPException(status_code=404)
+
+    try:
+        with zipfile.ZipFile(job.file_path) as z:
+            for candidate in ("Metadata/plate_1.png", "Metadata/top_1.png"):
+                if candidate in z.namelist():
+                    return Response(
+                        content=z.read(candidate),
+                        media_type="image/png"
+                    )
+    except Exception:
+        pass
+
+    raise HTTPException(status_code=404, detail="No thumbnail found")
