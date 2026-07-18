@@ -31,7 +31,7 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 _filters.register(templates)
 
-ALLOWED_EXTENSIONS = {".3mf"}
+ALLOWED_SLICED_SUFFIX = ".gcode.3mf"
 ALLOWED_STL = {".stl"}
 MAX_FILE_SIZE = 200 * 1024 * 1024  # 200MB
 
@@ -105,7 +105,7 @@ async def upload_submit(
         return RedirectResponse(url="/upload?error=no_files", status_code=302)
 
     for f in files:
-        if Path(f.filename).suffix.lower() not in ALLOWED_EXTENSIONS:
+        if not f.filename.lower().endswith(ALLOWED_SLICED_SUFFIX):
             return RedirectResponse(url="/upload?error=invalid_extension", status_code=302)
 
     if printer_id == "auto":
