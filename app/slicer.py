@@ -35,7 +35,7 @@ async def slice_stl(
     nozzle_temp: int = 220,
     bed_temp: int = 65,
     filament_type: str = "PLA",
-) -> str:
+) -> tuple[str, int]:
     """STL → Bambu A1 호환 .gcode 슬라이싱.
 
     Args:
@@ -115,10 +115,11 @@ async def slice_stl(
 
     # ── Bambu A1 후처리 ──────────────────────────────────────────────────────
     # PrusaSlicer gcode를 Bambu A1이 인식할 수 있는 형식으로 변환
+    estimated_minutes = 30  # fallback if postprocess fails
     try:
         from bambu_postprocess import postprocess_for_bambu_a1
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
+        _, estimated_minutes = await loop.run_in_executor(
             None,
             postprocess_for_bambu_a1,
             str(out_path),
@@ -126,7 +127,7 @@ async def slice_stl(
             bed_temp,
             filament_type,
         )
-        logger.info("Bambu 후처리 완료: %s", out_path.name)
+        logger.info("Bambu 후처리 완료: %s (%d분 추정)", out_path.name, estimated_minutes)
     except Exception as e:
         logger.warning("Bambu 후처리 실패 (원본 gcode 유지): %s", e)
 
@@ -151,7 +152,7 @@ async def slice_stl(
 
     size_kb = out_path.stat().st_size / 1024
     logger.info("슬라이싱 완료: %s (%.1f KB)", out_path.name, size_kb)
-    return str(out_path)
+    return str(out_path), estimated_minutes
 
 
 def is_slicer_available() -> bool:

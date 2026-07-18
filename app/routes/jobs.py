@@ -231,11 +231,11 @@ async def _slice_job_bg(job_id: int, stl_path: str, original_name: str):
         if job is None:
             return
         try:
-            final_path = await slice_stl(stl_path)
-            Path(stl_path).unlink(missing_ok=True)
+            final_path, estimated_minutes = await slice_stl(stl_path)
             job.file_path = final_path
             job.filename = Path(original_name).stem + Path(final_path).suffix
             job.file_size = Path(final_path).stat().st_size
+            job.estimated_minutes = estimated_minutes
         except SlicingError as e:
             job.admin_notes = f"[슬라이싱 실패] {e.message}"
         except Exception as e:

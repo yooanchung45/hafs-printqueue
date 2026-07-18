@@ -337,7 +337,7 @@ def postprocess_for_bambu_a1(
     with open(input_path, 'w', encoding='utf-8') as f:
         f.write(final_gcode)
 
-    return str(input_path)
+    return str(input_path), estimated_minutes
 
 
 if __name__ == "__main__":

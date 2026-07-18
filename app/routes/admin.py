@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 logger = logging.getLogger("admin")
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -136,7 +136,15 @@ async def admin_dashboard(
     )
     canceled_jobs = result.scalars().all()
 
-    all_jobs = list(pending_jobs) + canceled_jobs
+    result = await db.execute(
+        select(Job)
+        .where(Job.status.in_([JobStatus.FAILED, JobStatus.REJECTED]))
+        .order_by(Job.created_at.desc())
+        .limit(50)
+    )
+    failed_jobs = result.scalars().all()
+
+    all_jobs = list(pending_jobs) + canceled_jobs + list(failed_jobs)
     for jobs in printer_jobs.values():
         all_jobs.extend(jobs)
     user_ids = {j.user_id for j in all_jobs}
@@ -154,6 +162,7 @@ async def admin_dashboard(
             "printers": printers,
             "printer_jobs": printer_jobs,
             "canceled_jobs": canceled_jobs,
+            "failed_jobs": failed_jobs,
             "users": users,
             "error": request.query_params.get("error"),
         },
@@ -412,9 +421,71 @@ async def fail_job(
 
     job.status = JobStatus.FAILED
     job.completed_at = _utcnow()
+    _pres = await db.execute(select(Printer).where(Printer.id == job.printer_id))
+    _printer = _pres.scalar_one_or_none()
+    if _printer is not None and _printer.current_job_id == job.id:
+        _printer.current_job_id = None
     await db.commit()
 
     return RedirectResponse(url="/admin", status_code=303)
+
+
+@router.post("/jobs/clear-failed")
+async def clear_failed_jobs(
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """실패/거부된 작업 전체 삭제 (DB 레코드 + 디스크 파일)."""
+    from pathlib import Path as _Path
+    result = await db.execute(
+        select(Job).where(Job.status.in_([JobStatus.FAILED, JobStatus.REJECTED]))
+    )
+    jobs = result.scalars().all()
+    for job in jobs:
+        if job.file_path:
+            p = _Path(job.file_path)
+            p.unlink(missing_ok=True)
+            p.with_suffix(".stl").unlink(missing_ok=True)
+        await db.delete(job)
+    await db.commit()
+    return RedirectResponse(url="/admin", status_code=303)
+
+
+@router.post("/jobs/{job_id}/requeue")
+async def requeue_job(
+    job_id: int,
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """실패/거부/취소된 작업을 승인 대기로 되돌림 (파일이 남아있으면)."""
+    from pathlib import Path as _Path
+    job = await _get_job_or_404(db, job_id)
+    if job.status not in (JobStatus.FAILED, JobStatus.REJECTED, JobStatus.CANCELED):
+        return RedirectResponse(url="/admin", status_code=303)
+    if not job.file_path or not _Path(job.file_path).exists():
+        return RedirectResponse(url="/admin?error=file_missing", status_code=302)
+    job.status = JobStatus.PENDING_APPROVAL
+    job.completed_at = None
+    job.queue_position = None
+    await db.commit()
+    return RedirectResponse(url="/admin", status_code=303)
+
+
+@router.get("/jobs/{job_id}/stl")
+async def admin_stl_preview(
+    job_id: int,
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """원본 STL을 Three.js 미리보기용으로 서빙."""
+    from pathlib import Path as _Path
+    job = await _get_job_or_404(db, job_id)
+    stl_path = _Path(job.file_path).with_suffix(".stl")
+    if not stl_path.exists():
+        raise HTTPException(status_code=404, detail="STL 미리보기를 사용할 수 없습니다 (직접 업로드된 .3mf거나 이미 삭제됨)")
+    return FileResponse(str(stl_path), media_type="application/octet-stream")
+
+
 @router.post("/jobs/{job_id}/cancel")
 async def cancel_job(
     job_id: int,
@@ -648,7 +719,6 @@ async def download_job_file(
 ):
     """gcode / STL 파일 다운로드."""
     import os
-    from fastapi.responses import FileResponse
     job = await _get_job_or_404(db, job_id)
     if not job.file_path or not os.path.exists(job.file_path):
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")

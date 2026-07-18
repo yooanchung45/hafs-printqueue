@@ -60,6 +60,12 @@
                                 {{ job.filename }}
                                 <a href="/admin/jobs/{{ job.id }}/download"
                                    title="파일 다운로드" class="dl-link">⬇</a>
+                                {% if job.file_path and job.file_path.endswith('.3mf') %}
+                                    <button class="stl-preview-btn dl-link"
+                                            data-job-id="{{ job.id }}"
+                                            data-filename="{{ job.filename | e }}"
+                                            style="background:none;border:none;cursor:pointer;font-size:0.8rem;">🔍</button>
+                                {% endif %}
                                 {% if job.user_notes %}
                                     <div class="job-notes">메모: {{ job.user_notes }}</div>
                                 {% endif %}
@@ -79,11 +85,11 @@
                                 {% endif %}
                             </td>
                             <td class="job-time">{{ (job.created_at | kst).strftime("%m/%d %H:%M") }}</td>
-                            <td>
-                                <form method="post" action="/admin/jobs/{{ job.id }}/approve" style="display: inline;">
+                            <td style="white-space:nowrap;">
+                                <form method="post" action="/admin/jobs/{{ job.id }}/approve" style="margin-bottom:6px;">
                                     <button type="submit" class="btn btn-primary btn-sm">승인</button>
                                 </form>
-                                <form method="post" action="/admin/jobs/{{ job.id }}/reject" style="display: inline;"
+                                <form method="post" action="/admin/jobs/{{ job.id }}/reject"
                                       onsubmit="var r=prompt('거부 사유를 입력하세요 (선택)', ''); if(r===null) return false; this.reason.value=r; return true;">
                                     <input type="hidden" name="reason">
                                     <button type="submit" class="btn btn-ghost btn-sm">거부</button>
@@ -96,6 +102,72 @@
         </div>
     {% endif %}
 </section>
+
+<!-- 실패/거부된 작업 -->
+{% if failed_jobs %}
+<section style="margin-top: 48px;">
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+        <h2 class="section-title" style="margin-bottom:0;">실패 · 거부된 작업 ({{ failed_jobs|length }})</h2>
+        <form method="post" action="/admin/jobs/clear-failed"
+              onsubmit="return confirm('실패/거부된 작업 {{ failed_jobs|length }}개를 모두 삭제할까요? 파일도 함께 삭제됩니다. 되돌릴 수 없습니다.');">
+            <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--danger);">🗑 전체 지우기</button>
+        </form>
+    </div>
+    <div class="scrollable-table-wrap scrollable-table-wrap--lg">
+        <table class="jobs-table">
+            <thead>
+                <tr>
+                    <th>학생</th>
+                    <th>파일</th>
+                    <th>프린터</th>
+                    <th>상태</th>
+                    <th>시각</th>
+                    <th>사유</th>
+                    <th>액션</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for job in failed_jobs %}
+                    <tr>
+                        <td>
+                            {{ users[job.user_id].name if job.user_id in users else "—" }}
+                            <div class="job-notes">{{ users[job.user_id].email if job.user_id in users else "" }}</div>
+                        </td>
+                        <td class="job-filename">
+                            {{ job.filename }}
+                            {% if job.file_path %}
+                                <a href="/admin/jobs/{{ job.id }}/download" title="파일 다운로드" class="dl-link">⬇</a>
+                            {% endif %}
+                        </td>
+                        <td>{% for p in printers %}{% if p.id == job.printer_id %}{{ p.name }}{% endif %}{% endfor %}</td>
+                        <td>
+                            <span class="job-status-badge job-status-{{ job.status.value }}">
+                                {{ "실패" if job.status.value == "failed" else "거부" }}
+                            </span>
+                        </td>
+                        <td class="job-time">{{ (job.created_at | kst).strftime("%m/%d %H:%M") }}</td>
+                        <td class="job-notes">{{ job.admin_notes or "—" }}</td>
+                        <td style="white-space:nowrap;">
+                            {% if job.file_path %}
+                                <form method="post" action="/admin/jobs/{{ job.id }}/requeue" style="margin-bottom:6px;">
+                                    <button type="submit" class="btn btn-primary btn-sm">↩ 재신청</button>
+                                </form>
+                                {% if job.file_path.endswith('.3mf') %}
+                                    <button class="btn btn-ghost btn-sm stl-preview-btn"
+                                            data-job-id="{{ job.id }}"
+                                            data-filename="{{ job.filename | e }}">🔍 미리보기</button>
+                                {% endif %}
+                            {% else %}
+                                <span style="color:var(--text-muted); font-size:12px;">파일 없음</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endif %}
 
 <!-- 취소된 작업 -->
 {% if canceled_jobs %}
@@ -223,6 +295,12 @@
                                         <div class="queue-item-meta">
                                             {{ users[job.user_id].name if job.user_id in users else "—" }}
                                             {% if job.user_notes %} · 메모: {{ job.user_notes }}{% endif %}
+                                            {% if job.file_path and job.file_path.endswith('.3mf') %}
+                                            · <button class="stl-preview-btn"
+                                                      data-job-id="{{ job.id }}"
+                                                      data-filename="{{ job.filename | e }}"
+                                                      style="background:none;border:none;cursor:pointer;color:var(--accent);font-size:12px;padding:0;">🔍 미리보기</button>
+                                            {% endif %}
                                         </div>
                                     </div>
                                     <div class="queue-item-actions">
@@ -347,7 +425,66 @@
     gap: 4px;
     flex-shrink: unset;
 }
+/* STL preview modal */
+#stl-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+#stl-modal.open { display: flex; }
+#stl-modal-inner {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    width: 680px;
+    max-width: 95vw;
+    position: relative;
+}
+#stl-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+}
+#stl-modal-title { font-weight: 600; font-size: 15px; }
+#stl-modal-close {
+    background: none;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    color: var(--text-muted);
+    line-height: 1;
+}
+#stl-canvas {
+    width: 100%;
+    height: 420px;
+    border-radius: 6px;
+    background: #111;
+    display: block;
+}
+#stl-modal-hint {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
 </style>
+
+<!-- STL preview modal -->
+<div id="stl-modal" role="dialog" aria-modal="true">
+    <div id="stl-modal-inner">
+        <div id="stl-modal-header">
+            <span id="stl-modal-title"></span>
+            <button id="stl-modal-close" aria-label="닫기">✕</button>
+        </div>
+        <canvas id="stl-canvas"></canvas>
+        <p id="stl-modal-hint">드래그: 회전 · 스크롤: 줌 · .3mf 직접 업로드 파일은 미리보기 없음</p>
+    </div>
+</div>
 
 <script>
 const STATUS_LABELS = {
@@ -394,5 +531,94 @@ function refreshCameras() {
 
 setInterval(pollPrinterStatus, 5000);
 setInterval(refreshCameras, 2000);
+
+// STL preview button clicks (close handlers wired in the module script below)
+document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.stl-preview-btn');
+    if (btn) window.openStlPreview && window.openStlPreview(btn.dataset.jobId, btn.dataset.filename);
+});
+</script>
+
+<script type="importmap">
+{"imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+let renderer, controls;
+
+window.openStlPreview = function(jobId, filename) {
+    const modal = document.getElementById('stl-modal');
+    document.getElementById('stl-modal-title').textContent = filename;
+    modal.classList.add('open');
+
+    const canvas = document.getElementById('stl-canvas');
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setSize(w, h, false);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111111);
+
+    const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 10000);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+    dir.position.set(1, 1, 1);
+    scene.add(dir);
+
+    controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+
+    new STLLoader().load(
+        '/admin/jobs/' + jobId + '/stl',
+        geo => {
+            geo.computeVertexNormals();
+            const mesh = new THREE.Mesh(
+                geo,
+                new THREE.MeshPhongMaterial({ color: 0x4a9eff, specular: 0x222222 })
+            );
+            // Apply the same Y-up rotation the upload preview uses
+            mesh.rotation.x = -Math.PI / 2;
+            const box = new THREE.Box3().setFromObject(mesh);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            mesh.position.sub(center);
+            camera.position.set(0, 0, Math.max(size.x, size.y, size.z) * 2);
+            controls.update();
+            scene.add(mesh);
+        },
+        undefined,
+        () => {
+            document.getElementById('stl-modal-hint').textContent =
+                'STL 미리보기를 불러올 수 없습니다 (직접 업로드된 .3mf 파일)';
+        }
+    );
+
+    (function animate() {
+        if (!renderer) return;
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+    })();
+};
+
+window.closeStlPreview = function() {
+    document.getElementById('stl-modal').classList.remove('open');
+    document.getElementById('stl-modal-hint').textContent =
+        '드래그: 회전 · 스크롤: 줌 · .3mf 직접 업로드 파일은 미리보기 없음';
+    if (renderer) { renderer.dispose(); renderer = null; }
+};
+
+// Wire close button and backdrop click here, after closeStlPreview is defined
+document.getElementById('stl-modal-close').addEventListener('click', window.closeStlPreview);
+document.getElementById('stl-modal').addEventListener('click', function(e) {
+    if (e.target === this) window.closeStlPreview();
+});
 </script>
 {% endblock %}

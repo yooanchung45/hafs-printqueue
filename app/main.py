@@ -1,4 +1,5 @@
 """FastAPI 진입점."""
+import random
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -60,6 +61,23 @@ app.include_router(admin_routes.router)
 app.include_router(board_routes.router)
 
 
+_GREETINGS = [
+    "안녕하세요, {name}님! 👋",
+    "어서오세요, {name}님! 🏃‍➡️",
+    "반갑습니다, {name}님! 👽",
+    "오늘도 좋은 하루 되세요, {name}님! 🌟",
+    "{name}님, 출력하러 오셨나요? 🎉",
+    "환영합니다, {name}님! 🚀",
+    "좋은 시간이에요, {name}님! ⚡",
+    "{name}님, 오늘 뭘 만들어볼까요? 🛠️",
+    "안녕, {name}! 오늘도 파이팅! 💪",
+    "{name}님이 돌아왔어요! 🎊",
+    "반가워요, {name}님! 오늘의 프린트를 시작해볼까요? 🖨️",
+    "{name}님, 멋진 걸 만들어봐요! 🌈",
+    "잘 지냈나 {name}이",
+]
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     from auth import get_current_user
@@ -99,6 +117,10 @@ async def index(request: Request):
         for job in result.scalars().all():
             printer_jobs[job.printer_id].append(job)
 
+        if "이서우" in user.name:
+            greeting = "sw💘"
+        else: 
+            greeting = random.choice(_GREETINGS).format(name=user.name)
         return templates.TemplateResponse(
             "dashboard.html",
             {
@@ -108,6 +130,7 @@ async def index(request: Request):
                 "slots_by_printer": slots_by_printer,
                 "printer_jobs": printer_jobs,
                 "user_id": user.id,
+                "greeting": greeting,
             },
         )
 
