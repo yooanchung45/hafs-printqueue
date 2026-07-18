@@ -34,39 +34,6 @@ class PrinterStatusInfo:
     error: Optional[str] = None
 
 
-def _normalize_color(raw):
-    if not raw or not isinstance(raw, str):
-        return None
-    h = raw.lstrip("#")
-    return "#" + h[:6].upper() if len(h) >= 6 else None
-
-
-def _parse_ams(dump):
-    """mqtt_dump의 print.ams.ams[0].tray 파싱 → SlotInfo 4개."""
-    slots = []
-    try:
-        ams_list = dump.get("print", {}).get("ams", {}).get("ams", [])
-        trays = ams_list[0].get("tray", []) if ams_list else []
-    except Exception:
-        trays = []
-    for i in range(4):
-        tray = trays[i] if i < len(trays) else {}
-        mat = tray.get("tray_type") if isinstance(tray, dict) else None
-        if not mat:
-            slots.append(SlotInfo(slot_index=i, is_empty=True))
-            continue
-        raw = tray.get("tray_color", "")
-        remain = tray.get("remain")
-        try:
-            remain = int(remain)
-        except (TypeError, ValueError):
-            remain = None
-        slots.append(SlotInfo(
-            slot_index=i, material_type=mat,
-            color_hex=_normalize_color(raw), color_name=None,
-            remaining_percent=remain, is_empty=False,
-        ))
-    return slots
 
 
 class PrinterClient:

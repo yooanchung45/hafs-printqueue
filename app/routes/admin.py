@@ -7,12 +7,16 @@ NOTE: 프린터 상태(printer.status)는 admin 액션에서 절대 안 건드�
 import asyncio
 import logging
 import os
+import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import quote
 
 logger = logging.getLogger("admin")
 
+import filters as _filters
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,7 +58,6 @@ def _bambulabs_start_print(ip, access_code, serial, file_path, remote_name, ams_
         upload_path = file_path
         tmp_path = None
         if slot != 0:
-            import os as _os
             if file_path.endswith('.gcode'):
                 import tempfile
                 with open(file_path, 'r', encoding='utf-8', errors='replace') as gf:
@@ -64,7 +67,6 @@ def _bambulabs_start_print(ip, access_code, serial, file_path, remote_name, ams_
                 tmp = tempfile.NamedTemporaryFile(
                     mode='w', suffix='.gcode', delete=False, encoding='utf-8'
                 )
-                tmp = tempfile.NamedTemp
                 tmp.write(gcode)
                 tmp.close()
                 tmp_path = upload_path = tmp.name
@@ -77,7 +79,7 @@ def _bambulabs_start_print(ip, access_code, serial, file_path, remote_name, ams_
                 pr.upload_file(f, remote_name)
         finally:
             if tmp_path:
-                _os.unlink(tmp_path)
+                os.unlink(tmp_path)
         time.sleep(2)
 
         ok = pr.start_print(remote_name, 1, use_ams=True, ams_mapping=[slot])
@@ -96,8 +98,6 @@ def _bambulabs_start_print(ip, access_code, serial, file_path, remote_name, ams_
         except Exception:
             pass
 
-
-import filters as _filters
 
 router = APIRouter(prefix="/admin")
 templates = Jinja2Templates(directory="templates")
@@ -437,14 +437,13 @@ async def clear_failed_jobs(
     db: AsyncSession = Depends(get_db),
 ):
     """실패/거부된 작업 전체 삭제 (DB 레코드 + 디스크 파일)."""
-    from pathlib import Path as _Path
     result = await db.execute(
         select(Job).where(Job.status.in_([JobStatus.FAILED, JobStatus.REJECTED]))
     )
     jobs = result.scalars().all()
     for job in jobs:
         if job.file_path:
-            p = _Path(job.file_path)
+            p = Path(job.file_path)
             p.unlink(missing_ok=True)
             p.with_suffix(".stl").unlink(missing_ok=True)
         await db.delete(job)
@@ -459,11 +458,10 @@ async def requeue_job(
     db: AsyncSession = Depends(get_db),
 ):
     """실패/거부/취소된 작업을 승인 대기로 되돌림 (파일이 남아있으면)."""
-    from pathlib import Path as _Path
     job = await _get_job_or_404(db, job_id)
     if job.status not in (JobStatus.FAILED, JobStatus.REJECTED, JobStatus.CANCELED):
         return RedirectResponse(url="/admin", status_code=303)
-    if not job.file_path or not _Path(job.file_path).exists():
+    if not job.file_path or not Path(job.file_path).exists():
         return RedirectResponse(url="/admin?error=file_missing", status_code=302)
     job.status = JobStatus.PENDING_APPROVAL
     job.completed_at = None
@@ -479,9 +477,8 @@ async def admin_stl_preview(
     db: AsyncSession = Depends(get_db),
 ):
     """원본 STL을 Three.js 미리보기용으로 서빙."""
-    from pathlib import Path as _Path
     job = await _get_job_or_404(db, job_id)
-    stl_path = _Path(job.file_path).with_suffix(".stl")
+    stl_path = Path(job.file_path).with_suffix(".stl")
     if not stl_path.exists():
         raise HTTPException(status_code=404, detail="STL 미리보기를 사용할 수 없습니다 (직접 업로드된 .3mf거나 이미 삭제됨)")
     return FileResponse(str(stl_path), media_type="application/octet-stream")
@@ -494,10 +491,8 @@ async def admin_3mf_thumb(
     db: AsyncSession = Depends(get_db),
 ):
     """Bambu Studio .gcode.3mf 안의 plate_1.png 썸네일을 반환."""
-    import zipfile
-    from pathlib import Path as _Path
     job = await _get_job_or_404(db, job_id)
-    if not job.file_path or not _Path(job.file_path).exists():
+    if not job.file_path or not Path(job.file_path).exists():
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
     try:
         with zipfile.ZipFile(job.file_path) as z:
@@ -516,8 +511,6 @@ async def cancel_job(
     db: AsyncSession = Depends(get_db),
 ):
     """출력 중인 작업을 프린터에서 즉시 중단하고 실패로 표시."""
-    from printer_client import PrinterClient
-
     job = await _get_job_or_404(db, job_id)
     if job.status != JobStatus.PRINTING:
         return RedirectResponse(url="/admin?error=not_printing", status_code=302)
@@ -533,8 +526,7 @@ async def cancel_job(
             serial=printer.serial,
             name=printer.name,
         )
-        import asyncio
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, client.stop)
 
         # Reset printer status
@@ -561,7 +553,6 @@ async def reports_page(
     db: AsyncSession = Depends(get_db),
 ):
     """보고서 페이지. ?year=&month= 있으면 그 달 표 같이 표시."""
-    from datetime import datetime
     from reports import gather_report_data, _status_korean
 
     now = datetime.now()
@@ -611,7 +602,6 @@ async def download_excel(
     excel_bytes = generate_excel(data)
 
     filename = f"PrintQueue_{year}-{month:02d}_데이터.xlsx"
-    from urllib.parse import quote
     encoded = quote(filename)
 
     return Response(
@@ -725,7 +715,6 @@ async def set_printer_light(
     printer = result.scalar_one_or_none()
     if printer is None:
         return RedirectResponse(url="/admin", status_code=302)
-    from printer_client import PrinterClient
     client = PrinterClient(ip=printer.ip, access_code=printer.access_code,
                            serial=printer.serial, name=printer.name)
     loop = asyncio.get_running_loop()
@@ -740,7 +729,6 @@ async def download_job_file(
     db: AsyncSession = Depends(get_db),
 ):
     """gcode / STL 파일 다운로드."""
-    import os
     job = await _get_job_or_404(db, job_id)
     if not job.file_path or not os.path.exists(job.file_path):
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
@@ -757,7 +745,6 @@ async def printers_status_api(
     db: AsyncSession = Depends(get_db),
 ):
     """JSON: 모든 프린터의 현재 상태 (JS 폴링용)."""
-    from fastapi.responses import JSONResponse
     result = await db.execute(select(Printer).order_by(Printer.id))
     return JSONResponse([
         {

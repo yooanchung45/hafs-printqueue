@@ -2,20 +2,25 @@
 import random
 import re
 from contextlib import asynccontextmanager
+from typing import Optional
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.middleware.sessions import SessionMiddleware
 
 import auth
 import filters as _filters
+from auth import get_current_user, require_user
 from config import settings, validate
-from db import init_db
-from routes import jobs as jobs_routes
+from db import get_db, init_db
+from models import FilamentSlot, Job, JobStatus, Printer, User
 from routes import admin as admin_routes
 from routes import board as board_routes
+from routes import jobs as jobs_routes
 
 
 @asynccontextmanager
@@ -80,79 +85,73 @@ _GREETINGS = [
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    from auth import get_current_user
-    from db import get_db
-    from models import Printer, FilamentSlot
-    from sqlalchemy import select
-
-    async for db in get_db():
-        user = await get_current_user(request, db)
-
-        if user is None:
-            return templates.TemplateResponse(
-                "login.html",
-                {"request": request, "error": request.query_params.get("error")},
-            )
-
-        from models import Job, JobStatus
-
-        result = await db.execute(select(Printer).order_by(Printer.id))
-        printers = result.scalars().all()
-
-        result = await db.execute(
-            select(FilamentSlot).order_by(FilamentSlot.printer_id, FilamentSlot.slot_index)
-        )
-        slots_by_printer = {}
-        for slot in result.scalars().all():
-            slots_by_printer.setdefault(slot.printer_id, []).append(slot)
-
-        printer_ids = [p.id for p in printers]
-        result = await db.execute(
-            select(Job)
-            .where(Job.printer_id.in_(printer_ids))
-            .where(Job.status.in_([JobStatus.QUEUED, JobStatus.PRINTING]))
-            .order_by(Job.printer_id, Job.queue_position)
-        )
-        printer_jobs = {p.id: [] for p in printers}
-        for job in result.scalars().all():
-            printer_jobs[job.printer_id].append(job)
-
-        real_name = re.sub(r'^\d+', '', user.name)
-        if "이서우" in real_name:
-            greeting = "sw💘"
-        else: 
-            greeting = random.choice(_GREETINGS).format(name=real_name)
+async def index(
+    request: Request,
+    user: Optional[User] = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if user is None:
         return templates.TemplateResponse(
-            "dashboard.html",
-            {
-                "request": request,
-                "user": user,
-                "printers": printers,
-                "slots_by_printer": slots_by_printer,
-                "printer_jobs": printer_jobs,
-                "user_id": user.id,
-                "greeting": greeting,
-            },
+            "login.html",
+            {"request": request, "error": request.query_params.get("error")},
         )
+
+    result = await db.execute(select(Printer).order_by(Printer.id))
+    printers = result.scalars().all()
+
+    result = await db.execute(
+        select(FilamentSlot).order_by(FilamentSlot.printer_id, FilamentSlot.slot_index)
+    )
+    slots_by_printer = {}
+    for slot in result.scalars().all():
+        slots_by_printer.setdefault(slot.printer_id, []).append(slot)
+
+    printer_ids = [p.id for p in printers]
+    result = await db.execute(
+        select(Job)
+        .where(Job.printer_id.in_(printer_ids))
+        .where(Job.status.in_([JobStatus.QUEUED, JobStatus.PRINTING]))
+        .order_by(Job.printer_id, Job.queue_position)
+    )
+    printer_jobs = {p.id: [] for p in printers}
+    for job in result.scalars().all():
+        printer_jobs[job.printer_id].append(job)
+
+    real_name = re.sub(r'^\d+', '', user.name)
+    if "이서우" in real_name:
+        greeting = "sw💘"
+    elif "이재현" in real_name:
+        greeting = "이재현 🥀 ah ey"
+    else:
+        greeting = random.choice(_GREETINGS).format(name=real_name)
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "user": user,
+            "printers": printers,
+            "slots_by_printer": slots_by_printer,
+            "printer_jobs": printer_jobs,
+            "user_id": user.id,
+            "greeting": greeting,
+        },
+    )
 
 
 @app.get("/guide", response_class=HTMLResponse)
-async def guide(request: Request):
-    from auth import get_current_user
-    from db import get_db
-
-    async for db in get_db():
-        user = await get_current_user(request, db)
-        if user is None:
-            return templates.TemplateResponse(
-                "login.html",
-                {"request": request, "error": request.query_params.get("error")},
-            )
+async def guide(
+    request: Request,
+    user: Optional[User] = Depends(get_current_user),
+):
+    if user is None:
         return templates.TemplateResponse(
-            "slicing_guide.html",
-            {"request": request, "user": user},
+            "login.html",
+            {"request": request, "error": request.query_params.get("error")},
         )
+    return templates.TemplateResponse(
+        "slicing_guide.html",
+        {"request": request, "user": user},
+    )
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -166,26 +165,19 @@ async def health():
 
 
 @app.get("/printers/status")
-async def printers_status(request: Request):
+async def printers_status(
+    _: User = Depends(require_user),
+    db: AsyncSession = Depends(get_db),
+):
     """JSON printer status for dashboard live-update (any logged-in user)."""
-    from auth import get_current_user
-    from db import get_db
-    from models import Printer
-    from sqlalchemy import select
-    from fastapi.responses import JSONResponse
-
-    async for db in get_db():
-        user = await get_current_user(request, db)
-        if user is None:
-            return JSONResponse(status_code=401, content={})
-        result = await db.execute(select(Printer).order_by(Printer.id))
-        return JSONResponse([
-            {
-                "id": p.id,
-                "status": p.status.value,
-                "progress": p.progress,
-                "nozzle_temp": p.nozzle_temp,
-                "bed_temp": p.bed_temp,
-            }
-            for p in result.scalars().all()
-        ])
+    result = await db.execute(select(Printer).order_by(Printer.id))
+    return JSONResponse([
+        {
+            "id": p.id,
+            "status": p.status.value,
+            "progress": p.progress,
+            "nozzle_temp": p.nozzle_temp,
+            "bed_temp": p.bed_temp,
+        }
+        for p in result.scalars().all()
+    ])

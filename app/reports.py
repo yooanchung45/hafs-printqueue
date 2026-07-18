@@ -2,7 +2,6 @@
 import calendar
 import io
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 _KST = timezone(timedelta(hours=9))
 
