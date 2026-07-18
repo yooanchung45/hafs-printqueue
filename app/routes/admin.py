@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 logger = logging.getLogger("admin")
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -64,6 +64,7 @@ def _bambulabs_start_print(ip, access_code, serial, file_path, remote_name, ams_
                 tmp = tempfile.NamedTemporaryFile(
                     mode='w', suffix='.gcode', delete=False, encoding='utf-8'
                 )
+                tmp = tempfile.NamedTemp
                 tmp.write(gcode)
                 tmp.close()
                 tmp_path = upload_path = tmp.name
@@ -486,18 +487,26 @@ async def admin_stl_preview(
     return FileResponse(str(stl_path), media_type="application/octet-stream")
 
 
-@router.get("/jobs/{job_id}/3mf-preview")
-async def admin_3mf_preview(
+@router.get("/jobs/{job_id}/3mf-thumb")
+async def admin_3mf_thumb(
     job_id: int,
     user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Bambu Studio .gcode.3mf를 Three.js ThreeMFLoader용으로 서빙."""
+    """Bambu Studio .gcode.3mf 안의 plate_1.png 썸네일을 반환."""
+    import zipfile
     from pathlib import Path as _Path
     job = await _get_job_or_404(db, job_id)
     if not job.file_path or not _Path(job.file_path).exists():
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
-    return FileResponse(str(job.file_path), media_type="application/octet-stream")
+    try:
+        with zipfile.ZipFile(job.file_path) as z:
+            for candidate in ("Metadata/plate_1.png", "Metadata/top_1.png", "Metadata/pick_1.png"):
+                if candidate in z.namelist():
+                    return Response(content=z.read(candidate), media_type="image/png")
+    except Exception:
+        pass
+    raise HTTPException(status_code=404, detail="썸네일을 찾을 수 없습니다")
 
 
 @router.post("/jobs/{job_id}/cancel")
@@ -596,7 +605,6 @@ async def download_excel(
     db: AsyncSession = Depends(get_db),
 ):
     """Excel 다운로드."""
-    from fastapi.responses import Response
     from reports import gather_report_data, generate_excel
 
     data = await gather_report_data(db, year, month)
