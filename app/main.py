@@ -122,6 +122,10 @@ async def index(
         greeting = "sw💘"
     elif "이재현" in real_name:
         greeting = "이재현 🥀 ah ey"
+    elif "이재승" in real_name:
+        greeting = "흰둥아 앉아"
+    elif "최성진" in real_name:
+        greeting = "공부해"
     else:
         greeting = random.choice(_GREETINGS).format(name=real_name)
     return templates.TemplateResponse(
