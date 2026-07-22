@@ -42,7 +42,7 @@
                 <img id="pcam-{{ printer.id }}"
                      src="/static/cam{{ printer.id }}.jpg?t=0"
                      onerror="this.style.display='none'"
-                     style="width:100%; border-radius:8px; margin:8px 0; display:block;"
+                     style="width:100%; border-radius:8px; margin:8px 0; display:{{ 'none' if printer.status.value == 'offline' else 'block' }};"
                      alt="{{ printer.name }} 현재 상태">
 
                 {% if printer.nozzle_temp is not none %}
@@ -119,6 +119,7 @@ async function pollPrinterStatus() {
         printers.forEach(p => {
             const badge = document.getElementById('pstatus-' + p.id);
             const temps = document.getElementById('ptemps-' + p.id);
+            const cam = document.getElementById('pcam-' + p.id);
             if (badge) {
                 let label = STATUS_LABELS[p.status] ?? p.status;
                 if (p.status === 'printing') {
@@ -126,6 +127,9 @@ async function pollPrinterStatus() {
                 }
                 badge.className = 'status-badge status-' + p.status;
                 badge.textContent = label;
+            }
+            if (cam) {
+                cam.style.display = p.status === 'offline' ? 'none' : 'block';
             }
             if (temps) {
                 if (p.nozzle_temp != null) {
