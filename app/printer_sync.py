@@ -1,4 +1,4 @@
-"""프린터 실제 상태/AMS를 읽어 DB(FilamentSlot, Printer.status)에 반영."""
+"""MQTT 게이트웨이의 최신 상태/AMS snapshot을 DB에 반영."""
 import asyncio
 import logging
 from sqlalchemy import select, delete
@@ -38,6 +38,7 @@ async def sync_printer(db, printer):
         printer.nozzle_temp = status.nozzle_temp
         printer.bed_temp = status.bed_temp
     else:
+        logger.warning("sync 실패 %s: %s", printer.name, status.error or "unknown error")
         printer.status = PrinterStatus.OFFLINE
         printer.progress = None
 
@@ -54,61 +55,22 @@ async def sync_printer(db, printer):
     await db.commit()
 
 
-async def sync_all(db):
+async def sync_all(db, force_refresh=False):
+    from printer_gateway import gateway
+
     result = await db.execute(select(Printer).order_by(Printer.id))
-    for printer in result.scalars().all():
+    printers = result.scalars().all()
+    gateway.prune(p.serial for p in printers if p.serial)
+    if force_refresh:
+        for printer in printers:
+            session = gateway.configure(
+                printer.ip, printer.access_code, printer.serial, printer.name
+            )
+            if session:
+                try:
+                    session.request_full_status()
+                except Exception as exc:
+                    logger.warning("강제 상태 요청 실패 %s: %s", printer.name, exc)
+        await asyncio.sleep(1)
+    for printer in printers:
         await sync_printer(db, printer)
-
-
-def _get_camera_frame_bytes(printer) -> bytes | None:
-    """프린터 카메라 한 프레임을 bytes로 반환. 실패 시 None."""
-    import base64, time as _t
-    try:
-        import bambulabs_api as _bl
-    except ImportError:
-        return None
-    if not (printer.ip and printer.access_code and printer.serial):
-        return None
-    p = None
-    try:
-        p = _bl.Printer(printer.ip, printer.access_code, printer.serial)
-        p.mqtt_start()
-        p.camera_start()
-        _t.sleep(6)
-        frame = p.get_camera_frame()
-        if frame:
-            if isinstance(frame, (bytes, bytearray)):
-                return bytes(frame)
-            try:
-                return base64.b64decode(frame)
-            except Exception:
-                return None
-        return None
-    except Exception as e:
-        logger.warning("카메라 프레임 획득 실패 %s: %s", printer.name, e)
-        return None
-    finally:
-        if p is not None:
-            try: p.camera_stop()
-            except Exception: pass
-            try: p.mqtt_stop()
-            except Exception: pass
-
-
-def _capture_snapshot(printer):
-    """프린터 카메라 한 프레임을 /app/static/cam{id}.jpg로 저장. 실패해도 조용히."""
-    data = _get_camera_frame_bytes(printer)
-    if data:
-        with open(f"/app/static/cam{printer.id}.jpg", "wb") as fh:
-            fh.write(data)
-        logger.info("snapshot 저장: cam%s.jpg (%d bytes)", printer.id, len(data))
-        return True
-    return False
-
-
-async def capture_all_snapshots(db):
-    """모든 프린터 카메라 스냅샷 캡처."""
-    result = await db.execute(select(Printer).order_by(Printer.id))
-    loop = asyncio.get_running_loop()
-    for printer in result.scalars().all():
-        await loop.run_in_executor(None, _capture_snapshot, printer)

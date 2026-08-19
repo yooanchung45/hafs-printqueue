@@ -2,7 +2,7 @@
 
 NOTE: 프린터 상태(printer.status)는 admin 액션에서 절대 안 건드림.
 - Mock 환경: 항상 OFFLINE (ip+access_code 없으니까)
-- 학교 연결 후: bambulabs_api가 주기적 MQTT ping으로 자동 갱신
+- 학교 연결 후: 단일 paho MQTT 게이트웨이가 자동 갱신
 """
 import asyncio
 import logging
@@ -33,17 +33,19 @@ def _utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _bambulabs_start_print(ip, access_code, serial, file_path, remote_name, ams_slot):
-    """Sync bambulabs operations. Returns 'ok' or an error key string."""
+def _bambulabs_start_print(ip, access_code, serial, name, file_path, remote_name, ams_slot):
+    """Legacy FTPS/print bridge; suspends the singleton MQTT session while active."""
     import time
     import bambulabs_api as _bl
     from printer_client import _first_loaded_slot
+    from printer_gateway import gateway
 
+    gateway.remove(serial)
     pr = _bl.Printer(ip, access_code, serial)
+
     try:
         pr.mqtt_start()
         time.sleep(6)
-
         if ams_slot is not None and str(ams_slot).strip() != "":
             slot = int(ams_slot)
         else:
@@ -97,6 +99,7 @@ def _bambulabs_start_print(ip, access_code, serial, file_path, remote_name, ams_
             pr.mqtt_stop()
         except Exception:
             pass
+        gateway.configure(ip, access_code, serial, name)
 
 
 router = APIRouter(prefix="/admin")
@@ -331,10 +334,16 @@ async def start_job(
         loop = asyncio.get_running_loop()
         result_str = await loop.run_in_executor(
             None, _bambulabs_start_print,
-            printer.ip, printer.access_code, printer.serial,
+            printer.ip, printer.access_code, printer.serial, printer.name,
             job.file_path, remote_name, ams_slot,
         )
     except Exception:
+        logger.exception(
+            "출력 시작 실패: printer=%s job=%s file=%s",
+            printer.name,
+            job.id,
+            job.file_path,
+        )
         return RedirectResponse(url="/admin?error=print_error", status_code=302)
 
     if result_str != "ok":
@@ -689,18 +698,7 @@ async def sync_printers(
 ):
     """모든 프린터 실제 상태/AMS를 읽어 DB 갱신."""
     from printer_sync import sync_all
-    await sync_all(db)
-    return RedirectResponse(url="/admin", status_code=302)
-
-
-@router.post("/printers/snapshot")
-async def snapshot_printers(
-    user: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """모든 프린터 카메라 스냅샷 캡처 (느림 - 프린터당 ~10초)."""
-    from printer_sync import capture_all_snapshots
-    await capture_all_snapshots(db)
+    await sync_all(db, force_refresh=True)
     return RedirectResponse(url="/admin", status_code=302)
 
 

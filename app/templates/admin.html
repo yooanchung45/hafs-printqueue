@@ -12,9 +12,6 @@
         <form method="post" action="/admin/printers/sync" style="display:inline;">
             <button type="submit" class="btn btn-ghost">🔄 프린터 상태 새로고침</button>
         </form>
-        <form method="post" action="/admin/printers/snapshot" style="display:inline;">
-            <button type="submit" class="btn btn-ghost">📷 사진 새로고침</button>
-        </form>
     </div>
 </section>
 
@@ -223,12 +220,6 @@
                         {% endif %}
                     </span>
                 </div>
-
-                <img id="pcam-{{ printer.id }}"
-                     src="/static/cam{{ printer.id }}.jpg?t=0"
-                     onerror="this.style.display='none'"
-                     style="width:100%; border-radius:8px; margin:8px 0; display:{{ 'none' if printer.status.value == 'offline' else 'block' }};"
-                     alt="{{ printer.name }} 현재 상태">
 
                 {% if printer.nozzle_temp is not none %}
                 <div id="ptemps-{{ printer.id }}" class="printer-temps">
@@ -500,7 +491,6 @@ async function pollPrinterStatus() {
         printers.forEach(p => {
             const badge = document.getElementById('pstatus-' + p.id);
             const temps = document.getElementById('ptemps-' + p.id);
-            const cam = document.getElementById('pcam-' + p.id);
 
             if (badge) {
                 let label = STATUS_LABELS[p.status] ?? p.status;
@@ -510,10 +500,6 @@ async function pollPrinterStatus() {
                 badge.className = 'status-badge status-' + p.status;
                 badge.textContent = label;
             }
-            if (cam) {
-                cam.style.display = p.status === 'offline' ? 'none' : 'block';
-            }
-
             if (temps) {
                 if (p.nozzle_temp != null) {
                     temps.textContent = '🌡 노즐 ' + Math.round(p.nozzle_temp) + '° / 베드 ' + Math.round(p.bed_temp) + '°';
@@ -526,18 +512,7 @@ async function pollPrinterStatus() {
     } catch (_) {}
 }
 
-function refreshCameras() {
-    document.querySelectorAll('img[id^="pcam-"]').forEach(img => {
-        const pid = img.id.replace('pcam-', '');
-        const badge = document.getElementById('pstatus-' + pid);
-        if (badge && badge.className.includes('status-offline')) return;
-        const base = img.src.split('?')[0];
-        img.src = base + '?t=' + Date.now();
-    });
-}
-
-setInterval(pollPrinterStatus, 5000);
-setInterval(refreshCameras, 2000);
+setInterval(pollPrinterStatus, 10000);
 
 // STL preview button clicks (close handlers wired in the module script below)
 document.addEventListener('click', function(e) {

@@ -28,12 +28,6 @@
                 </span>
             </div>
 
-            <!-- 카메라 피드 -->
-            <img src="/static/cam{{ printer.id }}.jpg?v={{ range(100000) | random }}"
-                 onerror="this.style.display='none'"
-                 style="width:100%; border-radius:8px; margin:8px 0; display:block;"
-                 alt="{{ printer.name }} 현재 상태">
-
             <!-- 온도 -->
             {% if printer.nozzle_temp is not none %}
             <div style="font-size:0.85rem; color:var(--text-muted); margin:6px 0 10px;">

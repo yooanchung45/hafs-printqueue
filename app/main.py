@@ -37,7 +37,11 @@ async def lifespan(app: FastAPI):
     from printer_live import start_background_tasks
     await start_background_tasks(async_session_maker)
 
-    yield
+    try:
+        yield
+    finally:
+        from printer_gateway import gateway
+        gateway.close()
 
 
 app = FastAPI(title="HAFS PrintQueue", lifespan=lifespan)
