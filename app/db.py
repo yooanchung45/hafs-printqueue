@@ -97,7 +97,7 @@ async def seed_printers():
 async def seed_filament_slots():
     """AMS 슬롯 초기 데이터 (Mock).
 
-    학교 가서 진짜 프린터 연결되면 이 데이터는 bambulabs_api가 덮어씀.
+    실제 프린터가 연결되면 이 데이터는 MQTT 게이트웨이가 덮어씀.
     지금은 UI 개발용 더미 데이터.
     """
     from sqlalchemy import select

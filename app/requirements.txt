@@ -11,3 +11,4 @@ python-dotenv==1.0.1
 reportlab==4.2.5
 openpyxl==3.1.5
 bambulabs_api==2.6.6
+paho-mqtt==2.1.0

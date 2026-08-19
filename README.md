@@ -28,7 +28,6 @@ Bambu Lab A1 + AMS Lite 프린터의 출력 신청, 큐 관리, 상태 모니터
 - 완료 / 실패 처리
 - 프린터 등록 및 정보 수정
 - 프린터 상태 새로고침 (MQTT 동기화)
-- 카메라 스냅샷
 - 월별 출력 리포트 (Excel)
 
 ### 프린터 연동
@@ -36,6 +35,7 @@ Bambu Lab A1 + AMS Lite 프린터의 출력 신청, 큐 관리, 상태 모니터
 - FTPS(포트 990)로 파일 업로드
 - MQTT(포트 8883)로 출력 제어 및 상태 수신
 - AMS 슬롯 자동 감지 및 DB 동기화
+- `paho-mqtt` 게이트웨이가 프린터별 MQTT 연결 하나를 유지하고 상태·제어 명령을 통합
 
 ---
 
@@ -44,7 +44,7 @@ Bambu Lab A1 + AMS Lite 프린터의 출력 신청, 큐 관리, 상태 모니터
 | 분야 | 기술 |
 |---|---|
 | 백엔드 | Python, FastAPI, SQLAlchemy (SQLite), Jinja2 |
-| 프린터 통신 | `bambulabs_api` (MQTT), FTPS |
+| 프린터 통신 | `paho-mqtt` (상태·제어), `bambulabs_api` (임시 FTPS 업로드) |
 | 슬라이싱 | PrusaSlicer CLI (Docker 내 설치) |
 | 3D 뷰어 | Three.js (브라우저) |
 | 인프라 | Docker, Caddy (리버스 프록시), Cloudflare Tunnel |
@@ -128,6 +128,8 @@ docker compose up -d --build
 ```
 
 로컬에 `docker-compose.override.yml`이 있으면 `docker compose` 명령이 자동으로 병합하므로, 서버에는 이 파일을 배포하지 않아야 합니다.
+
+프린터별 MQTT singleton은 프로세스 내부에서 관리하므로 Uvicorn worker는 반드시 1개만 사용해야 합니다.
 
 ### 5. 프린터 등록
 - 관리자 로그인 후 `/admin` 에서 프린터 추가

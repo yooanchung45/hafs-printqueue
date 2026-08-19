@@ -1,15 +1,9 @@
-"""프린터 통신 추상화. IP/access_code/serial 있으면 실제, 없으면 Mock."""
-import logging, time
+"""프린터 통신 facade. 실제 MQTT 연결은 printer_gateway가 단독 소유한다."""
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
 logger = logging.getLogger("printer_client")
-
-try:
-    import bambulabs_api as bl
-    _HAS_BAMBU = True
-except ImportError:
-    _HAS_BAMBU = False
 
 
 @dataclass
@@ -37,7 +31,6 @@ class PrinterStatusInfo:
 
 
 class PrinterClient:
-    CONNECT_WAIT = 5.0
 
     def __init__(self, ip=None, access_code=None, serial=None, name="프린터"):
         self.ip = ip
@@ -47,101 +40,61 @@ class PrinterClient:
 
     @property
     def is_mock(self):
-        return not (self.ip and self.access_code and self.serial and _HAS_BAMBU)
+        return not (self.ip and self.access_code and self.serial)
 
-    def _connect(self):
-        printer = bl.Printer(self.ip, self.access_code, self.serial)
-        printer.mqtt_start()
-        time.sleep(self.CONNECT_WAIT)
-        return printer
-
-    def _disconnect(self, printer):
-        try:
-            printer.mqtt_stop()
-        except Exception:
-            pass
+    def _gateway_session(self):
+        from printer_gateway import gateway
+        return gateway.configure(
+            self.ip, self.access_code, self.serial, self.name
+        )
 
     def get_status(self):
         if self.is_mock:
             return self._mock_status()
-        printer = None
         try:
-            printer = self._connect()
-            state = printer.get_state()
-            state_str = state.value.upper() if hasattr(state, 'value') else (str(state).upper() if state else None)
-            if not state_str or state_str in ("UNKNOWN", "OFFLINE"):
-                return PrinterStatusInfo(online=False, state="OFFLINE", error=f"Printer unreachable (state={state_str})")
-            info = PrinterStatusInfo(online=True, state=state_str)
-            try: info.percentage = int(printer.get_percentage())
-            except Exception: pass
-            try: info.remaining_minutes = int(printer.get_time())
-            except Exception: pass
-            try: info.bed_temp = float(printer.get_bed_temperature())
-            except Exception: pass
-            try: info.nozzle_temp = float(printer.get_nozzle_temperature())
-            except Exception: pass
-            try: info.slots = _ams_slots_from_dump(printer.mqtt_dump())
+            snapshot = self._gateway_session().snapshot()
+            if not snapshot.online:
+                return PrinterStatusInfo(
+                    online=False, state="OFFLINE", error=snapshot.error
+                )
+            values = snapshot.data.get("print") or {}
+            state = str(values.get("gcode_state") or "UNKNOWN").upper()
+            info = PrinterStatusInfo(online=True, state=state)
+            try: info.percentage = int(values.get("mc_percent"))
+            except (TypeError, ValueError): pass
+            try: info.remaining_minutes = int(values.get("mc_remaining_time"))
+            except (TypeError, ValueError): pass
+            try: info.bed_temp = float(values.get("bed_temper"))
+            except (TypeError, ValueError): pass
+            try: info.nozzle_temp = float(values.get("nozzle_temper"))
+            except (TypeError, ValueError): pass
+            try: info.slots = _ams_slots_from_dump(snapshot.data)
             except Exception as e: logger.debug("AMS 파싱 실패: %s", e)
             return info
         except Exception as e:
             logger.warning("[%s] 상태 읽기 실패: %s", self.name, e)
             return PrinterStatusInfo(online=False, state="OFFLINE", error=str(e))
-        finally:
-            if printer is not None:
-                self._disconnect(printer)
-
-    def upload_and_print(self, local_path, remote_name, plate_number=1, use_ams=True, ams_mapping=None):
-        """파일 업로드 후 출력 시작. 반환 (성공, 메시지)."""
-        if self.is_mock:
-            return True, f"[Mock] {remote_name} 출력 시작됨"
-        printer = None
-        try:
-            printer = self._connect()
-            with open(local_path, "rb") as f:
-                printer.upload_file(f, remote_name)
-            time.sleep(2)
-            ok = printer.start_print(remote_name, plate_number, use_ams=use_ams, ams_mapping=ams_mapping or [0])
-            if ok:
-                return True, f"{self.name} 출력 시작: {remote_name}"
-            return False, f"{self.name} 출력 시작 실패 (Developer Mode 확인)"
-        except Exception as e:
-            logger.warning("[%s] 출력 오류: %s", self.name, e)
-            return False, f"출력 오류: {e}"
-        finally:
-            if printer is not None:
-                self._disconnect(printer)
 
     def stop(self):
         if self.is_mock:
             return True
-        printer = None
         try:
-            printer = self._connect()
-            return printer.stop_print()
-        except Exception:
+            self._gateway_session().stop_print()
+            return True
+        except Exception as e:
+            logger.warning("[%s] 출력 중단 실패: %s", self.name, e)
             return False
-        finally:
-            if printer is not None:
-                self._disconnect(printer)
 
     def set_light(self, on: bool):
         """조명 켜기/끄기. 반환 (성공, 메시지)."""
         if self.is_mock:
             return True, "[Mock] 조명 " + ("켜짐" if on else "꺼짐")
-        printer = None
         try:
-            printer = self._connect()
-            if on:
-                printer.turn_light_on()
-            else:
-                printer.turn_light_off()
+            self._gateway_session().set_light(on)
             return True, "조명 " + ("켜짐" if on else "꺼짐")
         except Exception as e:
             logger.warning("[%s] 조명 제어 실패: %s", self.name, e)
             return False, f"조명 오류: {e}"
-        finally:
-            if printer is not None:
-                self._disconnect(printer)
 
     def _mock_status(self):
         return PrinterStatusInfo(online=False, state="OFFLINE", slots=[
