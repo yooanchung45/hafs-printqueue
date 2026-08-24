@@ -14,6 +14,19 @@ _STATE_MAP = {
 }
 
 
+def _printer_status(state: str, has_current_job: bool) -> PrinterStatus:
+    """Map Bambu state while distinguishing an intentional stop from failure.
+
+    Bambu reports both a user-requested stop and a real print failure as
+    ``FAILED``.  The cancel route clears ``current_job_id`` before the next
+    sync, which lets us treat that terminal report as idle without hiding a
+    failure for a job that is still considered active.
+    """
+    if state == "FAILED" and not has_current_job:
+        return PrinterStatus.IDLE
+    return _STATE_MAP.get(state, PrinterStatus.IDLE)
+
+
 async def sync_printer(db, printer):
     """프린터 한 대 동기화. 실패해도 예외 안 던짐."""
     client = PrinterClient(
@@ -33,7 +46,9 @@ async def sync_printer(db, printer):
 
     # 프린터 상태 갱신
     if status.online:
-        printer.status = _STATE_MAP.get(status.state, PrinterStatus.IDLE)
+        printer.status = _printer_status(
+            status.state, has_current_job=printer.current_job_id is not None
+        )
         printer.progress = status.percentage
         printer.nozzle_temp = status.nozzle_temp
         printer.bed_temp = status.bed_temp
