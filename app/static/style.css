@@ -814,6 +814,26 @@ section {
     vertical-align: middle;
 }
 
+/* Shared, on-demand printer camera */
+.camera-feed { margin: 12px 0 14px; }
+.camera-feed__viewport {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: 8px;
+    background: #111827;
+}
+.camera-feed img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity .2s ease; }
+.camera-feed.is-live img { opacity: 1; }
+.camera-feed__placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #cbd5e1; font-size: 12px; }
+.camera-feed.is-live .camera-feed__placeholder { display: none; }
+.camera-feed__footer { min-height: 25px; display: flex; align-items: center; justify-content: space-between; font-size: 10px; font-weight: 700; letter-spacing: .08em; color: var(--text-muted); }
+.camera-feed__dot { display: inline-block; width: 6px; height: 6px; margin-right: 4px; border-radius: 50%; background: #9ca3af; }
+.camera-feed.is-live .camera-feed__dot { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.14); }
+.camera-feed__retry { display: none; border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; letter-spacing: 0; }
+.camera-feed.has-error .camera-feed__retry { display: block; }
+@media (prefers-reduced-motion: reduce) { .camera-feed img { transition: none; } }
+
 /* ============================================================
    내 작업 — queue position notice
    ============================================================ */

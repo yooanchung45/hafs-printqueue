@@ -20,6 +20,7 @@ from db import get_db, init_db
 from models import FilamentSlot, Job, JobStatus, Printer, User
 from routes import admin as admin_routes
 from routes import board as board_routes
+from routes import camera as camera_routes
 from routes import jobs as jobs_routes
 
 
@@ -40,7 +41,9 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        from camera_stream import camera_hub
         from printer_gateway import gateway
+        await camera_hub.close()
         gateway.close()
 
 
@@ -69,6 +72,7 @@ app.add_api_route("/auth/logout", auth.logout, methods=["GET", "POST"])
 app.include_router(jobs_routes.router)
 app.include_router(admin_routes.router)
 app.include_router(board_routes.router)
+app.include_router(camera_routes.router)
 
 
 _GREETINGS = [

@@ -39,6 +39,19 @@
                     </span>
                 </div>
 
+                <div class="camera-feed" data-camera-url="/cameras/{{ printer.id }}/stream">
+                    <div class="camera-feed__viewport">
+                        <img alt="{{ printer.name }} 실시간 카메라" decoding="async">
+                        <div class="camera-feed__placeholder">
+                            <span class="camera-feed__message">카메라 연결 중…</span>
+                        </div>
+                    </div>
+                    <div class="camera-feed__footer">
+                        <span><i class="camera-feed__dot"></i> LIVE</span>
+                        <button type="button" class="camera-feed__retry">다시 연결</button>
+                    </div>
+                </div>
+
                 {% if printer.nozzle_temp is not none %}
                 <div id="ptemps-{{ printer.id }}" style="font-size:0.85rem; color:var(--text-muted); margin:6px 0 10px;">
                     🌡 노즐 {{ printer.nozzle_temp|round|int }}° / 베드 {{ printer.bed_temp|round|int }}°
@@ -134,6 +147,64 @@ async function pollPrinterStatus() {
 }
 
 setInterval(pollPrinterStatus, 10000);
+
+// Start only visible feeds. Native MJPEG rendering is low-overhead, while the
+// server shares one printer connection and drops stale frames per viewer.
+document.querySelectorAll('.camera-feed').forEach(feed => {
+    const img = feed.querySelector('img');
+    const message = feed.querySelector('.camera-feed__message');
+    const retry = feed.querySelector('.camera-feed__retry');
+    let visible = false;
+    let connected = false;
+    let retryTimer = null;
+    let attempts = 0;
+
+    function stop() {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+        connected = false;
+        img.removeAttribute('src');
+        feed.classList.remove('is-live', 'has-error');
+    }
+
+    function start(force = false) {
+        if (!visible || document.hidden || (connected && !force)) return;
+        clearTimeout(retryTimer);
+        connected = true;
+        feed.classList.remove('has-error');
+        message.textContent = '카메라 연결 중…';
+        img.src = feed.dataset.cameraUrl + '?v=' + Date.now();
+    }
+
+    img.addEventListener('load', () => {
+        attempts = 0;
+        feed.classList.add('is-live');
+        feed.classList.remove('has-error');
+    });
+    img.addEventListener('error', () => {
+        connected = false;
+        feed.classList.remove('is-live');
+        feed.classList.add('has-error');
+        message.textContent = '카메라 연결을 확인하고 있습니다';
+        const delay = Math.min(30000, 1000 * (2 ** attempts++));
+        retryTimer = setTimeout(start, delay + Math.random() * 500);
+    });
+    retry.addEventListener('click', () => {
+        attempts = 0;
+        stop();
+        start(true);
+    });
+
+    const observer = new IntersectionObserver(entries => {
+        visible = entries[0].isIntersecting;
+        if (visible) start(); else stop();
+    }, { rootMargin: '200px 0px' });
+    observer.observe(feed);
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) stop(); else start();
+    });
+});
 
 document.addEventListener('click', function(e) {
     const btn = e.target.closest('.preview-btn');
