@@ -15,6 +15,7 @@ import filters as _filters
 from auth import require_user
 from db import get_db
 from models import Comment, Post, PostAttachment, PostCategory, User, UserRole
+from notifications import notify_new_question
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -162,6 +163,8 @@ async def board_create_post(
     db.add(post)
     await db.commit()
     await db.refresh(post)
+    if post.category == PostCategory.QUESTION:
+        notify_new_question(user.name, post.title, post.id)
     return RedirectResponse(url=f"/board/{post.id}", status_code=303)
 
 

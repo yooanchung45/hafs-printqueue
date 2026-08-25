@@ -40,6 +40,15 @@ Bambu Lab A1 + AMS Lite 프린터의 출력 신청, 큐 관리, 상태 모니터
   - 느린 클라이언트에는 지난 프레임을 버려 지연 누적 방지
   - 화면 밖/백그라운드 탭에서는 자동 중지, 장애 시 지수 백오프로 자동 복구
 
+### Slack 알림 (선택)
+
+Slack App에서 Incoming Webhook을 생성한 뒤 프로덕션 `.env`에
+`SLACK_NOTIFICATIONS_ENABLED=true`, `SLACK_WEBHOOK_URL`, 외부 접속 주소인
+`APP_BASE_URL`을 설정하면 새 신청, 출력 시작/완료/실패,
+프린터 오류, 새 질문 게시글 알림이 전송됩니다. 전송 실패는 로그만
+남기며 출력 큐 동작에는 영향을 주지 않습니다. 로컬 개발용
+`docker-compose.override.yml`은 알림을 항상 비활성화합니다.
+
 ---
 
 ## 기술 스택

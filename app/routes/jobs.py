@@ -23,6 +23,7 @@ from auth import require_user
 from config import settings
 from db import get_db
 from models import Job, JobStatus, Printer, User
+from notifications import notify_new_jobs
 
 
 import filters as _filters
@@ -143,6 +144,7 @@ async def upload_submit(
         ))
 
     await db.commit()
+    notify_new_jobs(user.name, [f.filename for f in files], printer.name)
     return RedirectResponse(url="/jobs?submitted=1", status_code=303)
 
 
@@ -313,6 +315,8 @@ async def stl_confirm(
         pending.append((job.id, stl_path, original_name))
 
     await db.commit()
+    if pending:
+        notify_new_jobs(user.name, [item[2] for item in pending], printer.name)
 
     for job_id, stl_path, original_name in pending:
         background_tasks.add_task(_slice_job_bg, job_id, stl_path, original_name)

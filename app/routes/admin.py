@@ -26,6 +26,7 @@ from db import get_db
 from printer_client import PrinterClient
 from models import Job, JobStatus, Printer, User, PrinterStatus
 from email_service import send_approved_email, send_rejected_email, send_print_done_email
+from notifications import notify_print_completed, notify_print_failed, notify_print_started
 
 
 def _utcnow():
@@ -326,6 +327,7 @@ async def start_job(
         job.started_at = _utcnow()
         printer.current_job_id = job.id
         await db.commit()
+        notify_print_started(job.filename, printer.name)
         return RedirectResponse(url="/admin?ok=mock_started", status_code=302)
 
     # 실제 출력: 블로킹 bambulabs 작업을 스레드 풀에서 실행
@@ -355,6 +357,9 @@ async def start_job(
     printer.status = PrinterStatus.PRINTING
     printer.current_job_id = job.id
     await db.commit()
+    _owner_result = await db.execute(select(User).where(User.id == job.user_id))
+    _owner = _owner_result.scalar_one_or_none()
+    notify_print_started(job.filename, printer.name, _owner.name if _owner else None)
 
     # Renumber remaining queued jobs for this printer
     q_res = await db.execute(
@@ -415,6 +420,12 @@ async def complete_job(
         except Exception as e:
             logger.warning("완료 이메일 발송 실패 %s: %s", job_user.email, e)
 
+    notify_print_completed(
+        job.filename,
+        _printer.name if _printer is not None else f"프린터 #{job.printer_id}",
+        job_user.name if job_user is not None else None,
+    )
+
     return RedirectResponse(url="/admin", status_code=303)
 
 
@@ -436,6 +447,10 @@ async def fail_job(
     if _printer is not None and _printer.current_job_id == job.id:
         _printer.current_job_id = None
     await db.commit()
+    notify_print_failed(
+        job.filename,
+        _printer.name if _printer is not None else f"프린터 #{job.printer_id}",
+    )
 
     return RedirectResponse(url="/admin", status_code=303)
 

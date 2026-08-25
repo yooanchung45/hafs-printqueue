@@ -33,6 +33,13 @@ class Settings:
     # 업로드 폴더
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "/app/data/uploads")
 
+    # Optional Slack Incoming Webhook notifications
+    SLACK_NOTIFICATIONS_ENABLED: bool = os.getenv(
+        "SLACK_NOTIFICATIONS_ENABLED", "false"
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    SLACK_WEBHOOK_URL: str = os.getenv("SLACK_WEBHOOK_URL", "")
+    APP_BASE_URL: str = os.getenv("APP_BASE_URL", "")
+
     @property
     def admin_emails(self) -> list[str]:
         """쉼표 구분된 관리자 이메일을 리스트로."""

@@ -4,6 +4,7 @@ import logging
 from sqlalchemy import select, delete
 from models import Printer, FilamentSlot, PrinterStatus
 from printer_client import PrinterClient
+from notifications import notify_printer_error
 
 logger = logging.getLogger("printer_sync")
 
@@ -35,6 +36,7 @@ async def sync_printer(db, printer):
     )
     if client.is_mock:
         return
+    previous_status = printer.status
     try:
         status = client.get_status()
     except Exception as e: 
@@ -56,6 +58,9 @@ async def sync_printer(db, printer):
         logger.warning("sync 실패 %s: %s", printer.name, status.error or "unknown error")
         printer.status = PrinterStatus.OFFLINE
         printer.progress = None
+
+    if printer.status == PrinterStatus.ERROR and previous_status != PrinterStatus.ERROR:
+        notify_printer_error(printer.name, status.state)
 
     # AMS 슬롯 갱신 (기존 삭제 후 재삽입)
     if status.slots:
