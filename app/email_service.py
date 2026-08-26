@@ -16,7 +16,7 @@ SMTP_PASS = os.getenv("SMTP_PASS")
 def send_email(to: str, subject: str, html: str):
     context = ssl.create_default_context()
     msg = EmailMessage()
-    from_str = f"HAFS PrintQueue <${SMTP_USER}>"
+    from_str = f"HAFS PrintQueue <{SMTP_USER}>"
     msg["Subject"] = subject
     msg["From"] = from_str
     msg["To"] = to
