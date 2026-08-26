@@ -36,6 +36,7 @@ def _utcnow():
 
 def _bambulabs_start_print(ip, access_code, serial, name, file_path, remote_name, ams_slot):
     """Legacy FTPS/print bridge; suspends the singleton MQTT session while active."""
+    import re
     import time
     import bambulabs_api as _bl
     from printer_client import _first_loaded_slot
@@ -55,7 +56,7 @@ def _bambulabs_start_print(ip, access_code, serial, name, file_path, remote_name
         if slot is None:
             return "no_filament"
 
-        # Patch AMS slot references (S0A → S{slot}A) when slot != 0.
+        # Patch AMS slot references (S0A → S{slot}A, T0 → T{slot}) when slot != 0.
         # For .gcode: simple string replace in a temp file.
         # For .3mf: repack the archive via patch_ams_slot().
         upload_path = file_path
@@ -67,6 +68,10 @@ def _bambulabs_start_print(ip, access_code, serial, name, file_path, remote_name
                     gcode = gf.read()
                 gcode = gcode.replace('M620 S0A', f'M620 S{slot}A')
                 gcode = gcode.replace('M621 S0A', f'M621 S{slot}A')
+                # T0 selects the physical AMS slot to pull filament from — must
+                # move with the M620/M621 slot tag or the printer keeps loading
+                # from slot 0 no matter what the wrapper says.
+                gcode = re.sub(r'(?m)^(\s*)T0(\s|$)', rf'\1T{slot}\2', gcode)
                 tmp = tempfile.NamedTemporaryFile(
                     mode='w', suffix='.gcode', delete=False, encoding='utf-8'
                 )

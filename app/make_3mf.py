@@ -19,6 +19,7 @@ Usage:
 import hashlib
 import io
 import json
+import re
 import zipfile
 from pathlib import Path
 
@@ -185,6 +186,10 @@ def patch_ams_slot(threemf_path: str, slot: int) -> str:
         gcode = entries['Metadata/plate_1.gcode'].decode('utf-8', errors='replace')
         gcode = gcode.replace('M620 S0A', f'M620 S{slot}A')
         gcode = gcode.replace('M621 S0A', f'M621 S{slot}A')
+        # T0 selects the physical AMS slot to pull filament from — must move
+        # with the M620/M621 slot tag or the printer keeps loading from slot 0
+        # no matter what the wrapper says.
+        gcode = re.sub(r'(?m)^(\s*)T0(\s|$)', rf'\1T{slot}\2', gcode)
         gcode_bytes = gcode.encode('utf-8')
         entries['Metadata/plate_1.gcode'] = gcode_bytes
         entries['Metadata/plate_1.gcode.md5'] = (

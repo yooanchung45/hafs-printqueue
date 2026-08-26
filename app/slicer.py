@@ -70,7 +70,7 @@ async def slice_stl(
         "--temperature", str(nozzle_temp),
         "--first-layer-temperature", str(nozzle_temp - 5),
         "--first-layer-bed-temperature", str(bed_temp),
-        "--fill-pattern", "gyroid",
+        "--fill-pattern", "rectilinear",
         "--perimeters", "3",
     ]
 
