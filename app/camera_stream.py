@@ -20,7 +20,13 @@ logger = logging.getLogger("camera_stream")
 
 CAMERA_PORT = 6000
 MAX_FRAME_BYTES = 5 * 1024 * 1024
-IDLE_GRACE_SECONDS = 10.0
+# How long to keep the upstream connection open with zero viewers before
+# tearing it down. This is a full-page app, so every navigation away from
+# the dashboard drops the subscriber and every navigation back creates a new
+# one — a short grace period meant reconnecting almost always paid the full
+# cost of a fresh TLS handshake + auth + wait for the first frame. Long
+# enough to survive normal "click into a job, click back" browsing.
+IDLE_GRACE_SECONDS = 45.0
 READ_TIMEOUT_SECONDS = 15.0
 
 
@@ -60,7 +66,12 @@ class CameraSession:
                 self._run(), name=f"camera-{self.printer_id}"
             )
 
-        seen = self.frame_number
+        # Start at 0, not self.frame_number: if the upstream is already live
+        # (e.g. the previous subscriber left less than IDLE_GRACE_SECONDS
+        # ago) there's already a current frame sitting in self.frame, and a
+        # new subscriber should get it immediately instead of waiting for
+        # the printer to push the next one.
+        seen = 0
         try:
             while True:
                 async with self._condition:
