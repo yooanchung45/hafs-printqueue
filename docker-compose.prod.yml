@@ -1,0 +1,15 @@
+services:
+  backend:
+    volumes:
+      - /usr/share/fonts:/usr/share/fonts:ro
+
+  frontend:
+    networks:
+      default:
+      web:
+        aliases:
+          - hafs-printqueue-web
+
+networks:
+  web:
+    external: true

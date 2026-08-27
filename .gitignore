@@ -5,6 +5,7 @@ data/
 # 백업/캐시
 *.bak*
 __pycache__/
+.pytest_cache/
 *.pyc
 *.pyo
 
@@ -18,6 +19,12 @@ Thumbs.db
 *.swp
 
 # 카메라 스냅샷 (런타임 생성)
-app/static/cam*.jpg
+backend/static/cam*.jpg
 
 .venv
+.pnpm-store/
+.hallmark/
+node_modules/
+.next/
+*.tsbuildinfo
+next-env.d.ts

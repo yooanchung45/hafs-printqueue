@@ -1,21 +1,39 @@
+name: hafs-printqueue
+
 services:
-  printqueue:
-    build: ./app
-    container_name: printqueue
+  backend:
+    build:
+      context: ./backend
+      target: runtime
     restart: unless-stopped
     env_file:
       - .env
     volumes:
       - ./data:/app/data
-      - ./app:/app
-      - /usr/share/fonts:/usr/share/fonts:ro
     environment:
-      - TZ=Asia/Seoul
-      - PYTHONUNBUFFERED=1
-      - ALLOWED_EMAIL_DOMAIN=hafs.hs.kr
-    networks:
-      - web
+      TZ: Asia/Seoul
+      ALLOWED_EMAIL_DOMAIN: hafs.hs.kr
+      DATABASE_URL: sqlite+aiosqlite:////app/data/db.sqlite
+      UPLOAD_DIR: /app/data/uploads
+      BOARD_UPLOAD_DIR: /app/data/board
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
-networks:
-  web:
-    external: true
+  frontend:
+    build:
+      context: ./frontend
+      target: runtime
+    restart: unless-stopped
+    environment:
+      API_ORIGIN: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    expose:
+      - "3000"
