@@ -22,7 +22,7 @@ from notifications import notify_new_jobs
 router = APIRouter(prefix="/api", tags=["jobs"])
 ALLOWED_SLICED_SUFFIX = ".gcode.3mf"
 ALLOWED_STL = {".stl"}
-MAX_FILE_SIZE = 200 * 1024 * 1024
+MAX_FILE_SIZE = 100 * 1024 * 1024
 
 
 async def pick_best_printer(db: AsyncSession) -> Printer:
@@ -113,7 +113,7 @@ async def upload_submit(
                 total_size += len(chunk)
                 if total_size > MAX_FILE_SIZE:
                     file_path.unlink(missing_ok=True)
-                    raise HTTPException(413, "파일은 200MB를 넘을 수 없습니다")
+                    raise HTTPException(413, "파일은 100MB를 넘을 수 없습니다")
                 destination.write(chunk)
         job = Job(
             user_id=user.id,
@@ -155,7 +155,7 @@ async def stl_preview(
                 total_size += len(chunk)
                 if total_size > MAX_FILE_SIZE:
                     file_path.unlink(missing_ok=True)
-                    break
+                    raise HTTPException(413, "파일은 100MB를 넘을 수 없습니다")
                 destination.write(chunk)
         if file_path.exists():
             saved.append(

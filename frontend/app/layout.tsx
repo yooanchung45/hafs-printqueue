@@ -13,11 +13,12 @@ export const metadata: Metadata = {
   description: "외대부고 3D 프린터 출력 시스템",
   icons: {
     icon: [
+      { url: "/brand-mark.svg", type: "image/svg+xml" },
       { url: "/favicon.ico" },
       { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
       { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
     ],
-    shortcut: "/favicon.ico",
+    shortcut: "/brand-mark.svg",
     apple: "/favicon-180x180.png",
   },
 };

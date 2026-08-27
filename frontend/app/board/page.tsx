@@ -33,7 +33,7 @@ export default function BoardPage() {
           {posts.map((post) => (
             <Link href={`/board/${post.id}`} className={post.pinned ? "board-row board-row-pinned" : "board-row"} key={post.id}>
               <div className="board-row-main">{post.pinned ? <Pin size={14} aria-label="고정" /> : null}<span className={`category category-${post.category}`}>{categoryLabels[post.category]}</span><strong className="truncate">{post.title}</strong></div>
-              <div className="board-row-meta"><span>{post.author?.name.replace(/^\d+/, "") ?? "—"}</span><time>{formatDate(post.created_at)}</time><span><MessageSquare size={12} /> {post.comment_count ?? 0}</span></div>
+              <div className="board-row-meta"><span>{post.author?.name ?? "—"}</span><time>{formatDate(post.created_at)}</time><span><MessageSquare size={12} /> {post.comment_count ?? 0}</span></div>
             </Link>
           ))}
         </div>

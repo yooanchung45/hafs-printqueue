@@ -147,13 +147,13 @@ export default function UploadPage() {
       <div className="upload-grid">
         <section className="card upload-path">
           <div className="upload-path-title"><Box size={22} /><div><h2>STL 파일</h2><p>브라우저에서 크기와 회전을 확인한 뒤 서버에서 슬라이싱합니다.</p></div></div>
-          <FilePicker id="stl-files" acceptAttribute=".stl" accept={(file) => file.name.toLowerCase().endsWith(".stl")} files={stlFiles} onFiles={setStlFiles} title="STL 파일 선택 또는 드롭" hint="여러 파일 · 각 파일 최대 200MB" />
+          <FilePicker id="stl-files" acceptAttribute=".stl" accept={(file) => file.name.toLowerCase().endsWith(".stl")} files={stlFiles} onFiles={setStlFiles} title="STL 파일 선택 또는 드롭" hint="여러 파일 · 각 파일 최대 100MB" />
           <div className="notice upload-guidance">복잡한 모델은 Bambu Studio로 직접 슬라이싱하면 더 정확하게 설정할 수 있습니다.</div>
           <button className={`button button-primary button-full ${busy === "stl" ? "button-loading" : ""}`} disabled={!stlFiles.length || busy !== null} onClick={() => submit("stl")}><Box size={16} /> 3D 미리보기</button>
         </section>
         <section className="card upload-path">
           <div className="upload-path-title"><FileArchive size={22} /><div><h2>슬라이싱된 3MF</h2><p>Bambu Studio에서 내보낸 .gcode.3mf 파일을 그대로 제출합니다.</p></div></div>
-          <FilePicker id="sliced-files" acceptAttribute=".gcode.3mf" accept={(file) => file.name.toLowerCase().endsWith(".gcode.3mf")} files={slicedFiles} onFiles={setSlicedFiles} title=".gcode.3mf 파일 선택 또는 드롭" hint="여러 파일 · 각 파일 최대 200MB" />
+          <FilePicker id="sliced-files" acceptAttribute=".gcode.3mf" accept={(file) => file.name.toLowerCase().endsWith(".gcode.3mf")} files={slicedFiles} onFiles={setSlicedFiles} title=".gcode.3mf 파일 선택 또는 드롭" hint="여러 파일 · 각 파일 최대 100MB" />
           <div className="field"><label htmlFor="sliced-notes">관리자 메모</label><textarea id="sliced-notes" className="textarea" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="출력 시 참고할 내용 (선택)" /></div>
           <button className={`button button-primary button-full ${busy === "sliced" ? "button-loading" : ""}`} disabled={!slicedFiles.length || busy !== null} onClick={() => submit("sliced")}><Check size={16} /> 출력 신청</button>
         </section>

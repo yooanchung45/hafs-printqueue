@@ -19,7 +19,7 @@ function formData(values: Record<string, string | number | null | undefined>) {
 }
 
 function JobName({ job }: { job: Job }) {
-  return <div className="admin-job-name"><strong className="truncate">{job.filename}</strong><span>{job.owner?.name.replace(/^\d+/, "") ?? "—"} · {formatBytes(job.file_size)}</span></div>;
+  return <div className="admin-job-name"><strong className="truncate">{job.filename}</strong><span>{job.owner?.name ?? "—"} · {formatBytes(job.file_size)}</span></div>;
 }
 
 type Mutate = (key: string, path: string, values?: Record<string, string | number | null | undefined>, confirmation?: string) => Promise<void>;

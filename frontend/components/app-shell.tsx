@@ -53,7 +53,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!session) {
     return (
       <div className="boot-screen" aria-live="polite">
-        <Image src="/favicon-180x180.png" alt="" width={32} height={32} priority />
+        <Image className="brand-mark" src="/brand-mark.svg" alt="" width={32} height={32} priority />
         <span className="spinner" />
         <span>PrintQueue를 불러오는 중</span>
       </div>
@@ -66,7 +66,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="login-page">
         <section className="login-panel" aria-labelledby="login-title">
           <div className="login-brand">
-            <Image src="/favicon-180x180.png" alt="" width={52} height={52} priority />
+            <Image className="brand-mark" src="/brand-mark.svg" alt="" width={52} height={52} priority />
             <div className="login-brand-copy">
               <h1 id="login-title" data-brand-heading="true">HAFS PrintQueue</h1>
               <span>외대부고 3D 프린터 출력 시스템</span>
@@ -97,7 +97,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app-frame">
       <header className="mobile-header">
         <Link href="/" className="brand-lockup">
-          <Image src="/favicon-180x180.png" alt="" width={27} height={27} />
+          <Image className="brand-mark" src="/brand-mark.svg" alt="" width={27} height={27} />
           <span>PrintQueue</span>
         </Link>
         <button className="icon-button" onClick={() => setMenuOpen((value) => !value)} aria-label="메뉴" aria-expanded={menuOpen}>
@@ -107,7 +107,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <aside className={`sidebar ${menuOpen ? "sidebar-open" : ""}`}>
         <Link href="/" className="brand-lockup sidebar-brand">
-          <Image src="/favicon-180x180.png" alt="" width={29} height={29} />
+          <Image className="brand-mark" src="/brand-mark.svg" alt="" width={29} height={29} />
           <span>PrintQueue</span>
         </Link>
         <nav className="sidebar-nav" aria-label="주 메뉴">
@@ -122,9 +122,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="sidebar-account">
-          <div className="avatar" aria-hidden="true">{session.user.name.replace(/^\d+/, "").slice(0, 1)}</div>
+          <div className="avatar" aria-hidden="true">{session.user.name.slice(0, 1)}</div>
           <div className="account-copy">
-            <strong>{session.user.name.replace(/^\d+/, "")}</strong>
+            <strong>{session.user.name}</strong>
             <span>{session.user.role === "admin" ? "관리자" : "학생"}</span>
           </div>
           <a href="/api/auth/logout" className="icon-button" aria-label="로그아웃" title="로그아웃">
