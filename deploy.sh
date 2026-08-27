@@ -30,11 +30,6 @@ docker compose version >/dev/null 2>&1 || fail "Docker Compose v2를 사용할 �
 # 런타임 데이터 디렉터리는 Git과 Docker 이미지 밖에 유지합니다.
 mkdir -p data/uploads data/board
 
-# 이전 단일 앱 구조의 게시판 첨부 파일을 1회 마이그레이션합니다.
-if [[ -d app/static/board ]]; then
-    cp -an app/static/board/. data/board/
-fi
-
 # 운영 프런트엔드가 연결될 외부 프록시 네트워크를 보장합니다.
 if ! docker network inspect web >/dev/null 2>&1; then
     echo ">> Docker 네트워크 'web' 생성"

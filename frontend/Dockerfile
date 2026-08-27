@@ -11,6 +11,7 @@ COPY . .
 CMD ["pnpm", "dev"]
 
 FROM base AS builder
+ENV API_ORIGIN=http://backend:8000
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build
