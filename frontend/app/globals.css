@@ -464,12 +464,10 @@ summary.section-heading { cursor: pointer; }
 .filament-row { display: flex; gap: var(--space-sm); overflow-x: auto; padding: var(--space-sm) var(--space-lg); }
 .filament-slot { align-items: center; color: var(--color-muted); display: inline-flex; flex: 0 0 auto; font-size: var(--text-xs); gap: var(--space-xs); }
 .filament-swatch {
-  background:
-    radial-gradient(circle at 32% 28%, color-mix(in oklch, white, transparent 45%), transparent 55%),
-    var(--filament);
+  background: var(--filament);
   border: var(--rule-thin) solid color-mix(in oklch, var(--color-ink), transparent 75%);
   border-radius: 50%;
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, white, transparent 80%);
+  filter: saturate(1.6);
   flex: 0 0 auto;
   height: 1.5rem;
   width: 1.5rem;
