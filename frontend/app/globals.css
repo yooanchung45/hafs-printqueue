@@ -481,13 +481,15 @@ summary.section-heading { cursor: pointer; }
 .queue-line-active { background: var(--color-accent-ink); }
 .queue-line-short { width: 68%; }
 
-.modal-backdrop { align-items: center; background: color-mix(in oklch, var(--color-ink), transparent 28%); display: flex; inset: 0; justify-content: center; padding: var(--space-md); position: fixed; z-index: 80; }
-.modal { background: var(--color-paper); border-radius: var(--radius-lg); max-height: calc(100vh - 2rem); max-width: 46rem; overflow: auto; width: 100%; }
+/* Scrim stays dark in both themes — keying it off --color-ink turned it into
+   a near-white wash in dark mode. */
+.modal-backdrop { align-items: center; background: color-mix(in oklch, black, transparent 32%); display: flex; inset: 0; justify-content: center; padding: var(--space-md); position: fixed; z-index: 80; }
+.modal { background: var(--color-paper); border-radius: var(--radius-lg); color: var(--color-ink); max-height: calc(100vh - 2rem); max-width: 46rem; overflow: auto; width: 100%; }
 .modal-header { align-items: center; border-bottom: var(--rule-thin) solid var(--color-rule-2); display: flex; justify-content: space-between; padding: var(--space-md) var(--space-lg); }
 .modal-header h2 { font-size: var(--text-md); margin: 0; }
 .modal-body { padding: var(--space-lg); }
 .printer-settings-dialog { border: 0; inset: 0; margin: auto; max-height: min(82vh, 48rem); max-width: 68rem; overflow: hidden; padding: 0; position: fixed; width: calc(100% - var(--space-2xl)); }
-.printer-settings-dialog::backdrop { background: color-mix(in oklch, var(--color-ink), transparent 28%); }
+.printer-settings-dialog::backdrop { background: color-mix(in oklch, black, transparent 32%); }
 .printer-settings-dialog .modal-header p { color: var(--color-muted); font-size: var(--text-xs); margin: var(--space-2xs) 0 0; }
 .printer-settings-dialog .modal-body { max-height: calc(min(82vh, 48rem) - 4.5rem); overflow-y: auto; }
 .submission-dialog { border: 0; box-shadow: 0 1px 2px color-mix(in oklch, var(--color-ink), transparent 92%); inset: 0; margin: auto; max-width: 25rem; padding: 0; position: fixed; width: calc(100% - var(--space-xl)); }

@@ -7,6 +7,10 @@
  * icons: pass (30) · mobile: static pass (34, 49, 50–57)
  */
 :root {
+  /* Keep UA-painted surfaces (native <dialog>, form controls, scrollbars,
+     Canvas/CanvasText system colors) on the same theme as our tokens —
+     otherwise a dialog toggled opposite to the OS renders invisible text. */
+  color-scheme: light;
   --color-paper: oklch(98% 0.008 250);
   --color-paper-2: oklch(96% 0.012 250);
   --color-paper-3: oklch(93% 0.015 250);
@@ -74,6 +78,7 @@
  */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --color-paper: oklch(17% 0.014 250);
     --color-paper-2: oklch(21% 0.016 250);
     --color-paper-3: oklch(26% 0.018 250);
@@ -107,6 +112,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --color-paper: oklch(17% 0.014 250);
   --color-paper-2: oklch(21% 0.016 250);
   --color-paper-3: oklch(26% 0.018 250);
