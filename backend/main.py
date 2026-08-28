@@ -84,7 +84,7 @@ _GREETINGS = [
 def _greeting(user: User) -> str:
     real_name = re.sub(r"^\d+", "", user.name)
     if "이서우" in real_name:
-        return "sw💘"
+        return "세상에서 제일 예쁘고 착하고 귀엽고 멋있고 똑똑하고 공부 잘하고 일 잘하고 대학도 겁나 잘갈고 그냥 지구상 제일 완벽한 사람인 정유안에게 없어서는 절대 안되는 제일 소중한 사람인 이서우♥️🩷🧡💛💚💙🩵💜🤍🖤❤️‍🔥❣️💘💝💖💗💓💞💌😘🥰"
     if "이재현" in real_name:
         return "이재현 🥀 ah ey"
     if "이재승" in real_name:
