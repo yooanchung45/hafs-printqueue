@@ -14,10 +14,12 @@ type Dimensions = { x: number; y: number; z: number };
 const initialTransform: ModelTransform = { scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 };
 
 // Shared by both submission paths (direct .gcode.3mf upload and the STL
-// confirm step) — printer choice is optional (blank = pick_best_printer on
-// the backend picks whichever healthy printer has the shortest queue), and
-// the filament choice only makes sense once a specific printer is picked,
-// since slot layouts/colors differ per printer.
+// confirm step). Printer choice is optional (blank = the backend's
+// pick_best_printer picks whichever healthy printer has the shortest
+// queue). The filament dropdown is always shown for consistency, but only
+// becomes selectable once a specific printer is picked — slot layouts and
+// colors differ per printer, and under ✨ 스마트 배정 we don't yet know
+// which printer the job will land on.
 function PrinterFilamentPicker({
   printers,
   printerId,
@@ -33,6 +35,10 @@ function PrinterFilamentPicker({
 }) {
   const selected = printers.find((printer) => String(printer.id) === printerId);
   const loadedSlots = selected?.slots?.filter((item) => !item.is_empty) ?? [];
+  const noPrinter = !selected;
+  const noFilament = !noPrinter && loadedSlots.length === 0;
+  const disabled = noPrinter || noFilament;
+  const currentSwatch = loadedSlots.find((item) => String(item.slot_index) === slotIndex)?.color_hex ?? null;
   return (
     <div className="picker-row">
       <div className="field">
@@ -49,17 +55,44 @@ function PrinterFilamentPicker({
           ))}
         </select>
       </div>
-      {selected && loadedSlots.length ? (
-        <div className="field">
-          <label htmlFor="filament-choice">필라멘트 색상 (선택)</label>
-          <select id="filament-choice" className="select" value={slotIndex} onChange={(event) => onSlotChange(event.target.value)}>
-            <option value="">선호 없음</option>
-            {loadedSlots.map((item) => (
-              <option key={item.id} value={item.slot_index}>{item.color_name ?? "색상 미확인"} · {item.material_type ?? "재질 미확인"}</option>
-            ))}
+      <div className="field">
+        <label htmlFor="filament-choice">필라멘트 색상</label>
+        <div className="filament-field">
+          {currentSwatch ? (
+            <span
+              className="filament-field-swatch"
+              style={{ "--filament": currentSwatch } as React.CSSProperties}
+              aria-hidden="true"
+            />
+          ) : null}
+          <select
+            id="filament-choice"
+            className="select"
+            value={disabled ? "" : slotIndex}
+            disabled={disabled}
+            onChange={(event) => onSlotChange(event.target.value)}
+          >
+            {noPrinter ? (
+              <option value="">프린터가 선택되지 않음</option>
+            ) : noFilament ? (
+              <option value="">로드된 필라멘트가 없음</option>
+            ) : (
+              <>
+                <option value="">색상 선호 없음</option>
+                {loadedSlots.map((item) => (
+                  <option
+                    key={item.id}
+                    value={item.slot_index}
+                    style={item.color_hex ? { color: item.color_hex } : undefined}
+                  >
+                    ● {item.color_name ?? "색상 미확인"} · {item.material_type ?? "재질 미확인"} (슬롯 {item.slot_index + 1})
+                  </option>
+                ))}
+              </>
+            )}
           </select>
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }

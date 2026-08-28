@@ -184,6 +184,24 @@ h1 { font-weight: 650; }
 .field label, .field-label { color: var(--color-ink-2); font-size: var(--text-xs); font-weight: 700; }
 .picker-row { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
 .picker-row .field { flex: 1 1 12rem; }
+/* Filament dropdown with a live color swatch of the picked slot. The swatch
+   sits over the select's left padding; the select gets extra inline-start
+   room so its text clears it. */
+.filament-field { position: relative; }
+.filament-field:has(.filament-field-swatch) .select { padding-left: 2.5rem; }
+.filament-field-swatch {
+  background: var(--filament);
+  border: var(--rule-thin) solid color-mix(in oklch, var(--color-ink), transparent 70%);
+  border-radius: 50%;
+  filter: saturate(1.6);
+  height: 1.25rem;
+  left: var(--space-sm);
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1.25rem;
+}
 .input, .select, .textarea {
   background: var(--color-paper);
   border: var(--rule-thin) solid var(--color-rule);
