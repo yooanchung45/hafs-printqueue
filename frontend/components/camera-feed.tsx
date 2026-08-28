@@ -21,6 +21,7 @@ export function CameraFeed({
   const [inViewport, setInViewport] = useState(true);
   const [retryKey, setRetryKey] = useState(0);
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const onVisibility = () => setVisible(document.visibilityState === "visible");
@@ -44,6 +45,15 @@ export function CameraFeed({
   }, []);
 
   const active = expanded && visible && inViewport;
+
+  // The <img> unmounts whenever active goes false (see the ternary below), so
+  // a fresh one mounts next time without re-firing onLoad until a real frame
+  // arrives — reset here so the badge doesn't show stale "LIVE" the instant
+  // it reappears.
+  useEffect(() => {
+    if (!active) setLoaded(false);
+  }, [active]);
+
   const stream = `/api/cameras/${printerId}/stream?retry=${retryKey}`;
   const image = active ? (
     <div className="camera-stage">
@@ -51,9 +61,10 @@ export function CameraFeed({
         className="camera-feed"
         src={stream}
         alt={`${printerName} 실시간 카메라`}
-        onLoad={() => { attemptsRef.current = 0; setFailed(false); }}
+        onLoad={() => { attemptsRef.current = 0; setFailed(false); setLoaded(true); }}
         onError={() => {
           setFailed(true);
+          setLoaded(false);
           attemptsRef.current += 1;
           const delay = Math.min(1000 * 2 ** (attemptsRef.current - 1), 30000);
           retryRef.current = window.setTimeout(() => {
@@ -61,6 +72,12 @@ export function CameraFeed({
           }, delay);
         }}
       />
+      {loaded && !failed ? (
+        <span className="camera-live-badge">
+          <span className="camera-live-dot" aria-hidden="true" />
+          LIVE
+        </span>
+      ) : null}
       {failed ? <span className="camera-message" role="status">카메라 재연결 중</span> : null}
     </div>
   ) : <div className="camera-paused">화면에 보일 때 카메라를 연결합니다.</div>;
