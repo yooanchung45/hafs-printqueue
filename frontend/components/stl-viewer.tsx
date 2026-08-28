@@ -12,9 +12,92 @@ export interface ModelTransform {
   rotationZ: number;
 }
 
+const DEFAULT_TRANSFORM: ModelTransform = { scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 };
+
+// Bed axes as the printer sees them (X/Y horizontal, Z = height) — not
+// three.js's own axis naming. The scene is Y-up for rendering (see the
+// rotationX - 90 below), so printer-Z maps to scene +Y, printer-Y maps to
+// scene +Z, printer-X maps to scene +X.
+const AXIS_SPECS: { dir: [number, number, number]; color: string; label: string }[] = [
+  { dir: [1, 0, 0], color: "#ef4444", label: "X" },
+  { dir: [0, 0, 1], color: "#22c55e", label: "Y" },
+  { dir: [0, 1, 0], color: "#3b82f6", label: "Z" },
+];
+
+function makeAxisLabel(text: string, color: string): THREE.Sprite {
+  const canvas = document.createElement("canvas");
+  canvas.width = 64;
+  canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.font = "bold 44px sans-serif";
+    ctx.fillStyle = color;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(text, 32, 34);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
+  sprite.scale.set(18, 18, 1);
+  return sprite;
+}
+
+function buildAxisIndicators(): THREE.Group {
+  const group = new THREE.Group();
+  const length = 140;
+  for (const { dir, color, label } of AXIS_SPECS) {
+    const end = new THREE.Vector3(dir[0] * length, dir[1] * length, dir[2] * length);
+    const start = new THREE.Vector3(0, 0, 0);
+    if (dir[1] === 0) { start.y = 0.3; end.y = 0.3; } // lift horizontal axes just off the grid
+    const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
+    const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color }));
+    group.add(line);
+    const sprite = makeAxisLabel(label, color);
+    sprite.position.copy(end).addScaledVector(new THREE.Vector3(...dir), 14);
+    group.add(sprite);
+  }
+  return group;
+}
+
+function disposeGroup(group: THREE.Group) {
+  group.traverse((object) => {
+    if (object instanceof THREE.Line) {
+      object.geometry.dispose();
+      (object.material as THREE.Material).dispose();
+    } else if (object instanceof THREE.Sprite) {
+      const material = object.material as THREE.SpriteMaterial;
+      material.map?.dispose();
+      material.dispose();
+    }
+  });
+}
+
+/** Rotate + scale the already-loaded model in place, then re-seat it on the
+ * bed (rotating changes the bounding box height). Doesn't touch the camera
+ * or controls, so the current view is preserved. */
+function applyTransform(model: THREE.Mesh, transform: ModelTransform) {
+  model.scale.setScalar(transform.scale);
+  model.rotation.set(
+    THREE.MathUtils.degToRad(transform.rotationX - 90),
+    THREE.MathUtils.degToRad(transform.rotationY),
+    THREE.MathUtils.degToRad(transform.rotationZ),
+  );
+  model.position.y = 0;
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  model.position.y = size.y / 2;
+}
+
 export function StlViewer({ url, transform, className = "", onDimensions }: { url: string; transform?: ModelTransform; className?: string; onDimensions?: (size: { x: number; y: number; z: number }) => void }) {
   const mountRef = useRef<HTMLDivElement>(null);
+  const modelRef = useRef<THREE.Mesh | null>(null);
+  const transformRef = useRef<ModelTransform>(transform ?? DEFAULT_TRANSFORM);
+  const onDimensionsRef = useRef(onDimensions);
+  onDimensionsRef.current = onDimensions;
 
+  // Scene/camera/renderer/model setup — only ever tears down and rebuilds
+  // when the file itself changes, not on every scale/rotation tweak.
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
@@ -38,34 +121,30 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     scene.add(light);
     const grid = new THREE.GridHelper(256, 16, fillColor, gridColor);
     scene.add(grid);
+    const axisIndicators = buildAxisIndicators();
+    scene.add(axisIndicators);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
 
-    let model: THREE.Mesh | null = null;
     let frame = 0;
     const loader = new STLLoader();
     loader.load(url, (geometry) => {
       geometry.computeVertexNormals();
       geometry.computeBoundingBox();
       const originalSize = geometry.boundingBox?.getSize(new THREE.Vector3());
-      if (originalSize) onDimensions?.({ x: originalSize.x, y: originalSize.y, z: originalSize.z });
+      if (originalSize) onDimensionsRef.current?.({ x: originalSize.x, y: originalSize.y, z: originalSize.z });
       geometry.center();
-      model = new THREE.Mesh(
+      const model = new THREE.Mesh(
         geometry,
         new THREE.MeshStandardMaterial({ color: modelColor, roughness: 0.62, metalness: 0.02 }),
       );
-      const current = transform ?? { scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 };
-      model.scale.setScalar(current.scale);
-      model.rotation.set(
-        THREE.MathUtils.degToRad(current.rotationX - 90),
-        THREE.MathUtils.degToRad(current.rotationY),
-        THREE.MathUtils.degToRad(current.rotationZ),
-      );
+      applyTransform(model, transformRef.current);
+      scene.add(model);
+      modelRef.current = model;
+
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());
-      model.position.y = size.y / 2;
-      scene.add(model);
       const span = Math.max(size.x, size.y, size.z, 10);
       camera.position.set(span * 1.25, span, span * 1.55);
       controls.target.set(0, size.y / 3, 0);
@@ -92,14 +171,29 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
       cancelAnimationFrame(frame);
       observer.disconnect();
       controls.dispose();
+      const model = modelRef.current;
       if (model) {
         model.geometry.dispose();
         (model.material as THREE.Material).dispose();
       }
+      modelRef.current = null;
+      disposeGroup(axisIndicators);
       renderer.dispose();
       renderer.domElement.remove();
     };
-  }, [url, transform, onDimensions]);
+    // url only — see the effect below for applying transform changes to the
+    // already-loaded model without rebuilding the scene/camera.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url]);
+
+  // Re-applies scale/rotation to the existing model when transform changes.
+  // Deliberately does not touch camera/controls, so the current view holds.
+  useEffect(() => {
+    transformRef.current = transform ?? DEFAULT_TRANSFORM;
+    const model = modelRef.current;
+    if (!model) return; // not loaded yet — the setup effect applies transformRef.current once it is
+    applyTransform(model, transformRef.current);
+  }, [transform]);
 
   return <div ref={mountRef} className={`stl-viewer ${className}`} role="img" aria-label="3D 모델 미리보기" />;
 }
