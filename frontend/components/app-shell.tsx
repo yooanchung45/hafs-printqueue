@@ -111,8 +111,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <aside className={`sidebar ${menuOpen ? "sidebar-open" : ""}`}>
         <Link href="/" className="brand-lockup sidebar-brand">
-          <Image className="brand-mark" src="/brand-mark.svg" alt="" width={29} height={29} />
-          <span>PrintQueue</span>
+          <Image className="brand-wordmark" src="/brand-logo.svg" alt="PrintQueue" width={192} height={46} priority />
         </Link>
         <nav className="sidebar-nav" aria-label="주 메뉴">
           {navItems.map(({ href, label, icon: Icon }) => {
