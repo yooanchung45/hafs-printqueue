@@ -28,9 +28,9 @@ export const metadata: Metadata = {
     shortcut: "/brand-mark.svg",
     apple: "/favicon-180x180.png",
   },
-  // KakaoTalk / Slack / iMessage link previews. Image must be PNG/JPG (SVG is
-  // not supported) — brand-logo.png is 2000×480; the dimensions let clients
-  // lay it out as a wide wordmark instead of hard-cropping it square.
+  // KakaoTalk / Slack / iMessage link previews. The card image (mark +
+  // wordmark, 1200×630) comes from app/opengraph-image.tsx — Next fills in
+  // og:image / twitter:image and their dimensions from that route.
   openGraph: {
     type: "website",
     siteName: SITE_NAME,
@@ -38,13 +38,11 @@ export const metadata: Metadata = {
     description: SITE_DESCRIPTION,
     url: SITE_URL,
     locale: "ko_KR",
-    images: [{ url: "/brand-logo.png", width: 2000, height: 480, alt: SITE_NAME }],
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: SITE_NAME,
     description: SITE_DESCRIPTION,
-    images: ["/brand-logo.png"],
   },
 };
 
