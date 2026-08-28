@@ -93,6 +93,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navItems = session.user.role === "admin"
     ? [...navigation, { href: "/admin", label: "관리자", icon: Settings }]
     : navigation;
+  const displayName = session.user.name.replace(/^\d+\s*/, "");
 
   return (
     <div className="app-frame">
@@ -111,7 +112,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <aside className={`sidebar ${menuOpen ? "sidebar-open" : ""}`}>
         <Link href="/" className="brand-lockup sidebar-brand">
-          <Image className="brand-wordmark" src="/brand-logo.svg" alt="PrintQueue" width={192} height={46} priority />
+          <Image className="brand-mark" src="/brand-mark.svg" alt="" width={37} height={37} priority />
+          <span className="sidebar-brand-name">PrintQueue</span>
         </Link>
         <nav className="sidebar-nav" aria-label="주 메뉴">
           {navItems.map(({ href, label, icon: Icon }) => {
@@ -125,9 +127,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="sidebar-account">
-          <div className="avatar" aria-hidden="true">{session.user.name.slice(0, 1)}</div>
+          <div className="avatar" aria-hidden="true">{displayName.slice(0, 1)}</div>
           <div className="account-copy">
-            <strong>{session.user.name}</strong>
+            <strong>{displayName}</strong>
             <span>{session.user.role === "admin" ? "관리자" : "학생"}</span>
           </div>
           <ThemeToggle />

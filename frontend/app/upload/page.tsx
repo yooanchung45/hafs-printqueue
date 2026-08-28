@@ -43,7 +43,7 @@ function PrinterFilamentPicker({
           value={printerId}
           onChange={(event) => { onPrinterChange(event.target.value); onSlotChange(""); }}
         >
-          <option value="">✨ 스마트 배정 (대기열이 가장 적은 프린터)</option>
+          <option value="">자동 배정 (대기열이 가장 적은 프린터)</option>
           {printers.map((printer) => (
             <option key={printer.id} value={printer.id}>{printer.name} · 대기 {printer.queue_count ?? 0}건</option>
           ))}

@@ -65,11 +65,11 @@ export function CameraFeed({
   const posterSrc = `/api/cameras/${printerId}/snapshot${posterTick ? `?t=${posterTick}` : ""}`;
 
   const liveShowing = active && liveLoaded && !failed;
-  const showPoster = posterOk && !liveShowing;
-  const showConnecting = !posterOk && !liveShowing && !(active && failed);
+  const showPoster = posterOk && !active;
+  const showLoading = active && !liveShowing;
 
   const body = (
-    <div className="camera-stage">
+    <div className={`camera-stage${posterOk || liveLoaded ? " has-frame-dimensions" : ""}`}>
       {expanded ? (
         <img
           className={`camera-poster${showPoster ? "" : " is-hidden"}`}
@@ -103,8 +103,11 @@ export function CameraFeed({
           LIVE
         </span>
       ) : null}
-      {active && failed ? <span className="camera-message" role="status">카메라 재연결 중</span> : null}
-      {showConnecting ? <span className="camera-message" role="status">카메라 연결 중</span> : null}
+      {showLoading ? (
+        <span className="camera-connecting-skeleton" role="status">
+          <span className="sr-only">카메라 연결 중</span>
+        </span>
+      ) : null}
     </div>
   );
 
