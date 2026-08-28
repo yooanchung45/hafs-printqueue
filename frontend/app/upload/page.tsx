@@ -3,6 +3,7 @@
 import { Box, Check, CheckCircle2, FileArchive, FileUp, RotateCcw, RotateCw, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 
 import { StlViewer, type ModelTransform } from "@/components/stl-viewer";
 import { api, formatBytes } from "@/lib/api";
@@ -198,6 +199,12 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
     form.append("ams_slot", slotIndex);
     try {
       await api("/api/upload/stl-confirm", { method: "POST", body: form });
+      posthog.capture("print_request_submitted", {
+        submission_type: "stl",
+        file_count: data.files.length,
+        printer_selected: Boolean(printerId),
+        filament_preference_selected: Boolean(slotIndex),
+      });
       setSubmitted(true);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "신청하지 못했습니다."); } finally { setBusy(false); }
   };
@@ -257,7 +264,16 @@ export default function UploadPage() {
     }
     try {
       if (kind === "stl") setPreview(await api<PreviewData>("/api/upload/stl-preview", { method: "POST", body: form }));
-      else { await api("/api/upload", { method: "POST", body: form }); setSubmitted(true); }
+      else {
+        await api("/api/upload", { method: "POST", body: form });
+        posthog.capture("print_request_submitted", {
+          submission_type: "sliced_3mf",
+          file_count: files.length,
+          printer_selected: Boolean(printerId),
+          filament_preference_selected: Boolean(slotIndex),
+        });
+        setSubmitted(true);
+      }
     } catch (caught) { setError(caught instanceof Error ? caught.message : "업로드하지 못했습니다."); } finally { setBusy(null); }
   };
   if (preview) return <StlWorkbench data={preview} onBack={() => setPreview(null)} />;

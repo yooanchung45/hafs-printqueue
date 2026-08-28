@@ -8,10 +8,14 @@ RUN pnpm install --frozen-lockfile
 
 FROM dependencies AS development
 COPY . .
-CMD ["pnpm", "dev"]
+CMD ["sh", "-c", "CI=true pnpm install --frozen-lockfile && pnpm dev --webpack"]
 
 FROM base AS builder
+ARG NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN
+ARG NEXT_PUBLIC_POSTHOG_HOST
 ENV API_ORIGIN=http://backend:8000
+ENV NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN} \
+    NEXT_PUBLIC_POSTHOG_HOST=${NEXT_PUBLIC_POSTHOG_HOST}
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build

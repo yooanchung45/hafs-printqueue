@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AlertTriangle, BarChart3, Check, ChevronDown, ChevronUp, Download, Lightbulb, MoreHorizontal, Plus, RefreshCw, RotateCcw, Settings, Square, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import posthog from "posthog-js";
 
 import { JobPreview } from "@/components/job-preview";
 import { StatusBadge } from "@/components/status-badge";
@@ -27,6 +28,16 @@ function JobName({ job }: { job: Job }) {
 
 type Mutate = (key: string, path: string, values?: Record<string, string | number | null | undefined>, confirmation?: string) => Promise<void>;
 
+function captureAdminMutation(key: string) {
+  const event = key.startsWith("approve-") ? "admin_job_approved"
+    : key.startsWith("reject-") ? "admin_job_rejected"
+      : key.startsWith("cancel-") ? "admin_print_cancelled"
+        : key.startsWith("complete-") ? "admin_print_completed"
+          : key.startsWith("retry-") ? "admin_job_retried"
+            : undefined;
+  if (event) posthog.capture(event);
+}
+
 export default function AdminPage() {
   const [data, setData] = useState<AdminData | null>(null);
   const [error, setError] = useState("");
@@ -50,7 +61,11 @@ export default function AdminPage() {
   const mutate = async (key: string, path: string, values?: Record<string, string | number | null | undefined>, confirmation?: string) => {
     if (confirmation && !window.confirm(confirmation)) return;
     setBusy(key); setError("");
-    try { await api(path, { method: "POST", body: values ? formData(values) : undefined }); await load(); }
+    try {
+      await api(path, { method: "POST", body: values ? formData(values) : undefined });
+      captureAdminMutation(key);
+      await load();
+    }
     catch (caught) { setError(caught instanceof Error ? caught.message : "작업을 처리하지 못했습니다."); }
     finally { setBusy(""); }
   };
@@ -64,6 +79,7 @@ export default function AdminPage() {
           method: "POST",
           body: formData({ ams_slot: slot }),
         });
+        posthog.capture("admin_print_started");
         setBusy("");
         await load();
         return;
@@ -74,7 +90,12 @@ export default function AdminPage() {
         try {
           const state = await api<Transfer>(`/api/admin/transfers/${result.transfer_id}`);
           setTransfer(state);
-          if (["done", "error"].includes(state.phase)) { window.clearInterval(poll); setBusy(""); await load(); }
+          if (["done", "error"].includes(state.phase)) {
+            window.clearInterval(poll);
+            if (state.phase === "done") posthog.capture("admin_print_started");
+            setBusy("");
+            await load();
+          }
         } catch { window.clearInterval(poll); setBusy(""); }
       }, 500);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "전송을 시작하지 못했습니다."); setBusy(""); }

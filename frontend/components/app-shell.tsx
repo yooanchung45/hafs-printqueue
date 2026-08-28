@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import posthog from "posthog-js";
 
 import { api } from "@/lib/api";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -45,6 +46,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     api<Session>("/api/session").then(setSession).catch(() => setSession({ authenticated: false, user: null }));
   }, []);
+
+  useEffect(() => {
+    if (!session?.authenticated || !session.user) return;
+
+    posthog.identify(String(session.user.id), {
+      email: session.user.email,
+      name: session.user.name,
+      role: session.user.role,
+    });
+  }, [session]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setMenuOpen(false), 0);
@@ -133,7 +144,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span>{session.user.role === "admin" ? "관리자" : "학생"}</span>
           </div>
           <ThemeToggle />
-          <a href="/api/auth/logout" className="icon-button" aria-label="로그아웃" title="로그아웃">
+          <a href="/api/auth/logout" className="icon-button" aria-label="로그아웃" title="로그아웃" onClick={() => posthog.reset()}>
             <LogOut size={17} />
           </a>
         </div>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ClipboardList, RotateCw, Upload } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import posthog from "posthog-js";
 
 import { EmptyState } from "@/components/empty-state";
 import { JobPreview } from "@/components/job-preview";
@@ -39,6 +40,7 @@ export default function JobsPage() {
     setBusy(job.id);
     try {
       await api(`/api/jobs/${job.id}/cancel`, { method: "POST" });
+      posthog.capture("print_request_cancelled", { job_status: job.status });
       await load();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "취소하지 못했습니다.");

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import posthog from "posthog-js";
 
 import { api, ApiError } from "@/lib/api";
 import type { PostCategory, User } from "@/lib/types";
@@ -24,7 +25,11 @@ export default function NewPostPage() {
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setError("");
     const form = new FormData(); form.append("category", category); form.append("title", title); form.append("body", body); if (pinned) form.append("pinned", "on"); files.forEach((file) => form.append("files", file));
-    try { const result = await api<{ post: { id: number } }>("/api/board/new", { method: "POST", body: form }); router.push(`/board/${result.post.id}`); }
+    try {
+      const result = await api<{ post: { id: number } }>("/api/board/new", { method: "POST", body: form });
+      posthog.capture("board_post_created", { category, attachment_count: files.length, pinned });
+      router.push(`/board/${result.post.id}`);
+    }
     catch (caught) { setError(caught instanceof Error ? caught.message : "게시하지 못했습니다."); setBusy(false); }
   };
   return (

@@ -5,3 +5,4 @@ tsconfig.tsbuildinfo
 .git
 .gitignore
 .hallmark
+.env*

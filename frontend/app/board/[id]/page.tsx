@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, FileText, MessageSquare, Pin, Reply, Trash2 } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useState } from "react";
+import posthog from "posthog-js";
 
 import { api, ApiError, formatDate } from "@/lib/api";
 import type { Attachment, BoardPost, Comment, User } from "@/lib/types";
@@ -37,16 +38,28 @@ export default function PostPage() {
   const comment = async (text: string, parentId?: number) => {
     if (!text.trim()) return;
     setBusy(true); const form = new FormData(); form.append("body", text); if (parentId) form.append("parent_id", String(parentId));
-    try { await api(`/api/board/${id}/comment`, { method: "POST", body: form }); setBody(""); setReplyBody(""); setReplyTo(null); await load(); }
+    try {
+      await api(`/api/board/${id}/comment`, { method: "POST", body: form });
+      posthog.capture("board_comment_created", { is_reply: Boolean(parentId) });
+      setBody(""); setReplyBody(""); setReplyTo(null); await load();
+    }
     catch (caught) { setError(caught instanceof Error ? caught.message : "댓글을 등록하지 못했습니다."); } finally { setBusy(false); }
   };
   const deletePost = async () => {
     if (!data || !window.confirm("이 게시글을 삭제할까요?")) return;
-    try { await api(`/api/board/${id}`, { method: "DELETE" }); router.push("/board"); } catch (caught) { setError(caught instanceof Error ? caught.message : "삭제하지 못했습니다."); }
+    try {
+      await api(`/api/board/${id}`, { method: "DELETE" });
+      posthog.capture("board_post_deleted", { category: data.post.category });
+      router.push("/board");
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "삭제하지 못했습니다."); }
   };
   const deleteComment = async (commentId: number) => {
     if (!window.confirm("이 댓글을 삭제할까요?")) return;
-    try { await api(`/api/board/comment/${commentId}`, { method: "DELETE" }); await load(); } catch (caught) { setError(caught instanceof Error ? caught.message : "삭제하지 못했습니다."); }
+    try {
+      await api(`/api/board/comment/${commentId}`, { method: "DELETE" });
+      posthog.capture("board_comment_deleted");
+      await load();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "삭제하지 못했습니다."); }
   };
   if (!data) return <div className="page page-narrow">{error ? <div className="notice notice-danger">{error}</div> : <div className="skeleton" />}</div>;
   const canDeletePost = data.user.id === data.post.author_id || data.user.role === "admin";
