@@ -106,27 +106,35 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // Roll off highlights instead of hard-clipping them to a flat colour, so
+    // the surface gradient stays readable even where the key light is strong.
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
     mount.appendChild(renderer.domElement);
 
     const styles = getComputedStyle(document.documentElement);
     const tokenColor = (name: string) => new THREE.Color(styles.getPropertyValue(name).trim());
     const modelColor = tokenColor("--color-model");
-    const lightColor = tokenColor("--color-model-light");
     const fillColor = tokenColor("--color-model-fill");
     const gridColor = tokenColor("--color-model-grid");
 
-    // A true ambient floor so no face ever renders fully black regardless of
-    // token values, plus a fill light opposite the key light — one
-    // directional light alone left the far side of the model nearly
-    // unreadable in both themes, not just dark mode.
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    scene.add(new THREE.HemisphereLight(lightColor, fillColor, 1.4));
-    const key = new THREE.DirectionalLight(lightColor, 2.0);
-    key.position.set(3, 5, 4);
+    // Lights must be real white, not a theme token — `--color-model-light` is
+    // near-black (#1e293b) in dark mode, which previously left the directional
+    // lights contributing nothing and the model rendering as a flat
+    // silhouette. Modest ambient/hemisphere floor + a dominant key light so
+    // faces actually pick up a light-to-dark gradient, plus a back rim light
+    // to separate the model's edge from the background.
+    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+    scene.add(new THREE.HemisphereLight(0xffffff, fillColor, 0.5));
+    const key = new THREE.DirectionalLight(0xffffff, 2.0);
+    key.position.set(4, 6, 5);
     scene.add(key);
-    const fill = new THREE.DirectionalLight(lightColor, 0.8);
-    fill.position.set(-4, 3, -3);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.55);
+    fill.position.set(-5, 2, -3);
     scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xffffff, 0.7);
+    rim.position.set(-2, 4, -6);
+    scene.add(rim);
     const grid = new THREE.GridHelper(256, 16, fillColor, gridColor);
     scene.add(grid);
     let axisIndicators: THREE.Group | null = null;
@@ -144,7 +152,7 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
       geometry.center();
       const model = new THREE.Mesh(
         geometry,
-        new THREE.MeshStandardMaterial({ color: modelColor, roughness: 0.62, metalness: 0.02 }),
+        new THREE.MeshStandardMaterial({ color: modelColor, roughness: 0.48, metalness: 0.0 }),
       );
       applyTransform(model, transformRef.current);
       scene.add(model);
