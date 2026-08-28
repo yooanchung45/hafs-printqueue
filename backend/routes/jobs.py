@@ -15,7 +15,7 @@ from api_serializers import job_dict, printer_dict
 from auth import require_user
 from config import settings
 from db import get_db
-from models import Job, JobStatus, Printer, User, UserRole
+from models import FilamentSlot, Job, JobStatus, Printer, User, UserRole
 from notifications import notify_new_jobs
 
 
@@ -48,6 +48,51 @@ async def pick_best_printer(db: AsyncSession) -> Printer:
     return min(healthy or printers, key=lambda p: load_counts[p.id])
 
 
+async def resolve_printer(db: AsyncSession, printer_id: str) -> Printer:
+    """빈 값이면 자동 배정, 아니면 학생이 고른 프린터를 그대로 사용."""
+    if printer_id and printer_id.strip():
+        try:
+            printer = (
+                await db.execute(select(Printer).where(Printer.id == int(printer_id)))
+            ).scalar_one_or_none()
+        except ValueError:
+            printer = None
+        if printer is not None:
+            return printer
+    return await pick_best_printer(db)
+
+
+def _parse_ams_slot(ams_slot: str) -> int | None:
+    """빈 값이면 선호 없음 — 관리자가 출력 시작할 때 직접 고른다."""
+    return int(ams_slot) if ams_slot and ams_slot.strip() else None
+
+
+async def _printers_payload(db: AsyncSession) -> list[dict]:
+    """업로드 페이지의 프린터/필라멘트 선택 UI용 — 대기열 수와 현재 로드된
+    슬롯을 함께 내려줘서, 특정 프린터를 고르면 그 프린터의 색상만 보여줄 수
+    있게 한다."""
+    printers = (await db.execute(select(Printer).order_by(Printer.id))).scalars().all()
+    counts = await _queue_counts(db, printers)
+    slots_by_printer: dict[int, list] = {}
+    if printers:
+        rows = (
+            await db.execute(
+                select(FilamentSlot).where(
+                    FilamentSlot.printer_id.in_([p.id for p in printers])
+                )
+            )
+        ).scalars().all()
+        for slot in rows:
+            slots_by_printer.setdefault(slot.printer_id, []).append(slot)
+    return [
+        {
+            **printer_dict(printer, slots=slots_by_printer.get(printer.id, [])),
+            "queue_count": counts[printer.id],
+        }
+        for printer in printers
+    ]
+
+
 async def _queue_counts(db: AsyncSession, printers) -> dict[int, int]:
     if not printers:
         return {}
@@ -75,13 +120,8 @@ async def upload_options(
     _: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
 ):
-    printers = (await db.execute(select(Printer).order_by(Printer.id))).scalars().all()
-    counts = await _queue_counts(db, printers)
     return {
-        "printers": [
-            {**printer_dict(printer), "queue_count": counts[printer.id]}
-            for printer in printers
-        ],
+        "printers": await _printers_payload(db),
         "limits": {"max_file_bytes": MAX_FILE_SIZE, "attachment_bytes": 10 * 1024 * 1024},
     }
 
@@ -89,6 +129,8 @@ async def upload_options(
 @router.post("/upload")
 async def upload_submit(
     user_notes: str = Form(""),
+    printer_id: str = Form(""),
+    ams_slot: str = Form(""),
     files: List[UploadFile] = File(...),
     user: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
@@ -99,7 +141,8 @@ async def upload_submit(
     if any(not file.filename.lower().endswith(ALLOWED_SLICED_SUFFIX) for file in files):
         raise HTTPException(422, ".gcode.3mf 파일만 업로드할 수 있습니다")
 
-    printer = await pick_best_printer(db)
+    printer = await resolve_printer(db, printer_id)
+    requested_slot = _parse_ams_slot(ams_slot)
     notes = user_notes.strip() or None
     upload_dir = Path(settings.UPLOAD_DIR)
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -123,6 +166,7 @@ async def upload_submit(
             file_size=total_size,
             status=JobStatus.PENDING_APPROVAL,
             user_notes=notes,
+            ams_slot=requested_slot,
         )
         db.add(job)
         jobs.append(job)
@@ -167,14 +211,9 @@ async def stl_preview(
             )
     if not saved:
         raise HTTPException(422, "유효한 STL 파일이 없습니다")
-    printers = (await db.execute(select(Printer).order_by(Printer.id))).scalars().all()
-    counts = await _queue_counts(db, printers)
     return {
         "files": saved,
-        "printers": [
-            {**printer_dict(printer), "queue_count": counts[printer.id]}
-            for printer in printers
-        ],
+        "printers": await _printers_payload(db),
     }
 
 
@@ -219,6 +258,8 @@ async def stl_confirm(
     file_ids: List[str] = Form(...),
     filenames: List[str] = Form(...),
     user_notes: str = Form(""),
+    printer_id: str = Form(""),
+    ams_slot: str = Form(""),
     scales: List[float] = Form(...),
     rotations_x: List[float] = Form(...),
     rotations_y: List[float] = Form(...),
@@ -228,7 +269,8 @@ async def stl_confirm(
 ):
     from stl_transform import apply_transform
 
-    printer = await pick_best_printer(db)
+    printer = await resolve_printer(db, printer_id)
+    requested_slot = _parse_ams_slot(ams_slot)
     notes = user_notes.strip() or None
     loop = asyncio.get_running_loop()
     pending = []
@@ -262,6 +304,7 @@ async def stl_confirm(
             file_size=Path(stl_path).stat().st_size,
             status=JobStatus.PROCESSING,
             user_notes=notes,
+            ams_slot=requested_slot,
         )
         db.add(job)
         await db.flush()

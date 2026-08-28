@@ -6,11 +6,63 @@ import { useRouter } from "next/navigation";
 
 import { StlViewer, type ModelTransform } from "@/components/stl-viewer";
 import { api, formatBytes } from "@/lib/api";
+import type { Printer } from "@/lib/types";
 
 type TempFile = { temp_id: string; original_name: string; url: string };
-type PreviewData = { files: TempFile[] };
+type PreviewData = { files: TempFile[]; printers: Printer[] };
 type Dimensions = { x: number; y: number; z: number };
 const initialTransform: ModelTransform = { scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 };
+
+// Shared by both submission paths (direct .gcode.3mf upload and the STL
+// confirm step) — printer choice is optional (blank = pick_best_printer on
+// the backend picks whichever healthy printer has the shortest queue), and
+// the filament choice only makes sense once a specific printer is picked,
+// since slot layouts/colors differ per printer.
+function PrinterFilamentPicker({
+  printers,
+  printerId,
+  onPrinterChange,
+  slotIndex,
+  onSlotChange,
+}: {
+  printers: Printer[];
+  printerId: string;
+  onPrinterChange: (value: string) => void;
+  slotIndex: string;
+  onSlotChange: (value: string) => void;
+}) {
+  const selected = printers.find((printer) => String(printer.id) === printerId);
+  const loadedSlots = selected?.slots?.filter((item) => !item.is_empty) ?? [];
+  return (
+    <div className="picker-row">
+      <div className="field">
+        <label htmlFor="printer-choice">프린터</label>
+        <select
+          id="printer-choice"
+          className="select"
+          value={printerId}
+          onChange={(event) => { onPrinterChange(event.target.value); onSlotChange(""); }}
+        >
+          <option value="">자동 배정 (대기열이 가장 적은 프린터)</option>
+          {printers.map((printer) => (
+            <option key={printer.id} value={printer.id}>{printer.name} · 대기 {printer.queue_count ?? 0}건</option>
+          ))}
+        </select>
+      </div>
+      {selected && loadedSlots.length ? (
+        <div className="field">
+          <label htmlFor="filament-choice">필라멘트 색상 (선택)</label>
+          <select id="filament-choice" className="select" value={slotIndex} onChange={(event) => onSlotChange(event.target.value)}>
+            <option value="">선호 없음</option>
+            {loadedSlots.map((item) => (
+              <option key={item.id} value={item.slot_index}>{item.color_name ?? "색상 미확인"} · {item.material_type ?? "재질 미확인"}</option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function FilePicker({ id, accept, acceptAttribute, files, onFiles, title, hint }: { id: string; accept: (file: File) => boolean; acceptAttribute: string; files: File[]; onFiles: (files: File[]) => void; title: string; hint: string }) {
   const add = (incoming: FileList | File[]) => onFiles([...files, ...Array.from(incoming).filter(accept).filter((file) => !files.some((item) => item.name === file.name && item.size === file.size))]);
@@ -63,6 +115,8 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
   const [transforms, setTransforms] = useState<ModelTransform[]>(data.files.map(() => ({ ...initialTransform })));
   const [dimensions, setDimensions] = useState<Record<number, Dimensions>>({});
   const [notes, setNotes] = useState("");
+  const [printerId, setPrinterId] = useState("");
+  const [slotIndex, setSlotIndex] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -86,6 +140,8 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
       form.append("rotations_z", String(transforms[index].rotationZ));
     });
     form.append("user_notes", notes);
+    form.append("printer_id", printerId);
+    form.append("ams_slot", slotIndex);
     try {
       await api("/api/upload/stl-confirm", { method: "POST", body: form });
       setSubmitted(true);
@@ -109,6 +165,7 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
             <div className="field transform-field"><label htmlFor="scale">크기 · {Math.round(current.scale * 100)}%</label><input id="scale" type="range" min="1" max="400" value={Math.round(current.scale * 100)} onChange={(event) => setCurrent({ scale: Number(event.target.value) / 100 })} /></div>
             <div className="preset-row">{[25, 50, 75, 100].map((percent) => <button key={percent} className="button button-secondary button-small" onClick={() => setCurrent({ scale: percent / 100 })}>{percent}%</button>)}</div>
             <div className="rotation-grid">{(["rotationX", "rotationY", "rotationZ"] as const).map((axis) => <div key={axis}><span>{axis.slice(-1)}</span><button className="button button-secondary button-small" onClick={() => setCurrent({ [axis]: current[axis] - 90 })}>−90°</button><strong>{current[axis]}°</strong><button className="button button-secondary button-small" onClick={() => setCurrent({ [axis]: current[axis] + 90 })}>+90°</button></div>)}</div>
+            <PrinterFilamentPicker printers={data.printers} printerId={printerId} onPrinterChange={setPrinterId} slotIndex={slotIndex} onSlotChange={setSlotIndex} />
             <div className="field"><label htmlFor="notes">관리자 메모</label><textarea id="notes" className="textarea" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="출력 시 참고할 내용 (선택)" /></div>
             <button className={`button button-primary button-full ${busy ? "button-loading" : ""}`} disabled={busy || tooLarge} onClick={confirm}><Check size={16} /> {data.files.length}개 파일 출력 신청</button>
           </div>
@@ -124,16 +181,26 @@ export default function UploadPage() {
   const [stlFiles, setStlFiles] = useState<File[]>([]);
   const [slicedFiles, setSlicedFiles] = useState<File[]>([]);
   const [notes, setNotes] = useState("");
+  const [printers, setPrinters] = useState<Printer[]>([]);
+  const [printerId, setPrinterId] = useState("");
+  const [slotIndex, setSlotIndex] = useState("");
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [busy, setBusy] = useState<"stl" | "sliced" | null>(null);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  useEffect(() => {
+    api<{ printers: Printer[] }>("/api/upload").then((data) => setPrinters(data.printers)).catch(() => {});
+  }, []);
   const submit = async (kind: "stl" | "sliced") => {
     setBusy(kind); setError("");
     const form = new FormData();
     const files = kind === "stl" ? stlFiles : slicedFiles;
     files.forEach((file) => form.append("files", file));
-    if (kind === "sliced") form.append("user_notes", notes);
+    if (kind === "sliced") {
+      form.append("user_notes", notes);
+      form.append("printer_id", printerId);
+      form.append("ams_slot", slotIndex);
+    }
     try {
       if (kind === "stl") setPreview(await api<PreviewData>("/api/upload/stl-preview", { method: "POST", body: form }));
       else { await api("/api/upload", { method: "POST", body: form }); setSubmitted(true); }
@@ -154,6 +221,7 @@ export default function UploadPage() {
         <section className="card upload-path">
           <div className="upload-path-title"><FileArchive size={22} /><div><h2>슬라이싱된 3MF</h2><p>Bambu Studio에서 내보낸 .gcode.3mf 파일을 그대로 제출합니다.</p></div></div>
           <FilePicker id="sliced-files" acceptAttribute=".gcode.3mf" accept={(file) => file.name.toLowerCase().endsWith(".gcode.3mf")} files={slicedFiles} onFiles={setSlicedFiles} title=".gcode.3mf 파일 선택 또는 드롭" hint="여러 파일 · 각 파일 최대 100MB" />
+          <PrinterFilamentPicker printers={printers} printerId={printerId} onPrinterChange={setPrinterId} slotIndex={slotIndex} onSlotChange={setSlotIndex} />
           <div className="field"><label htmlFor="sliced-notes">관리자 메모</label><textarea id="sliced-notes" className="textarea" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="출력 시 참고할 내용 (선택)" /></div>
           <button className={`button button-primary button-full ${busy === "sliced" ? "button-loading" : ""}`} disabled={!slicedFiles.length || busy !== null} onClick={() => submit("sliced")}><Check size={16} /> 출력 신청</button>
         </section>
