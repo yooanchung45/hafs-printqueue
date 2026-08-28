@@ -43,6 +43,46 @@ function makeAxisLabel(text: string, color: string, size: number): THREE.Sprite 
   return sprite;
 }
 
+/** A procedural matcap: a sphere-lit gradient painted in the model colour —
+ * bright key highlight upper-left, dark falloff, a soft rim lower-right. Used
+ * instead of scene lights because a matte part lit by directional lights has
+ * too little luminance range to read as a solid against a dark viewport, so
+ * every lighting rig we tried left it looking like a flat silhouette. A
+ * matcap bakes in a strong fixed gradient that always shows form. */
+function makeMatcap(base: THREE.Color): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const srgb = base.clone().convertLinearToSRGB();
+  const css = (c: THREE.Color) => `#${c.getHexString()}`;
+  const light = srgb.clone().lerp(new THREE.Color(0xffffff), 0.72);
+  const dark = srgb.clone().multiplyScalar(0.26);
+  if (ctx) {
+    ctx.fillStyle = css(dark);
+    ctx.fillRect(0, 0, size, size);
+    const key = ctx.createRadialGradient(size * 0.36, size * 0.33, size * 0.04, size * 0.5, size * 0.5, size * 0.6);
+    key.addColorStop(0, css(light));
+    key.addColorStop(0.45, css(srgb));
+    key.addColorStop(1, css(dark));
+    ctx.fillStyle = key;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+    ctx.fill();
+    const rim = ctx.createRadialGradient(size * 0.72, size * 0.77, size * 0.02, size * 0.72, size * 0.77, size * 0.3);
+    rim.addColorStop(0, "rgba(255,255,255,0.4)");
+    rim.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = rim;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 function buildAxisIndicators(length: number): THREE.Group {
   const group = new THREE.Group();
   const labelGap = Math.max(length * 0.1, 8);
@@ -106,10 +146,6 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    // Roll off highlights instead of hard-clipping them to a flat colour, so
-    // the surface gradient stays readable even where the key light is strong.
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
     mount.appendChild(renderer.domElement);
 
     const styles = getComputedStyle(document.documentElement);
@@ -117,24 +153,16 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     const modelColor = tokenColor("--color-model");
     const fillColor = tokenColor("--color-model-fill");
     const gridColor = tokenColor("--color-model-grid");
+    const rootTheme = document.documentElement.getAttribute("data-theme");
+    const darkTheme = rootTheme === "dark"
+      || (rootTheme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    // Drawn over the mesh so the actual outline and creases are always
+    // visible, whatever the matcap does — a light line in dark mode, a dark
+    // line in light mode.
+    const edgeColor = new THREE.Color(darkTheme ? "#e6eefb" : "#1e293b");
 
-    // Lights must be real white, not a theme token — `--color-model-light` is
-    // near-black (#1e293b) in dark mode, which previously left the directional
-    // lights contributing nothing and the model rendering as a flat
-    // silhouette. Modest ambient/hemisphere floor + a dominant key light so
-    // faces actually pick up a light-to-dark gradient, plus a back rim light
-    // to separate the model's edge from the background.
-    scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-    scene.add(new THREE.HemisphereLight(0xffffff, fillColor, 0.5));
-    const key = new THREE.DirectionalLight(0xffffff, 2.0);
-    key.position.set(4, 6, 5);
-    scene.add(key);
-    const fill = new THREE.DirectionalLight(0xffffff, 0.55);
-    fill.position.set(-5, 2, -3);
-    scene.add(fill);
-    const rim = new THREE.DirectionalLight(0xffffff, 0.7);
-    rim.position.set(-2, 4, -6);
-    scene.add(rim);
+    // No scene lights: the model uses an unlit matcap material (see
+    // makeMatcap) for guaranteed, background-independent shading.
     const grid = new THREE.GridHelper(256, 16, fillColor, gridColor);
     scene.add(grid);
     let axisIndicators: THREE.Group | null = null;
@@ -152,8 +180,13 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
       geometry.center();
       const model = new THREE.Mesh(
         geometry,
-        new THREE.MeshStandardMaterial({ color: modelColor, roughness: 0.48, metalness: 0.0 }),
+        new THREE.MeshMatcapMaterial({ matcap: makeMatcap(modelColor) }),
       );
+      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geometry, 24),
+        new THREE.LineBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.55 }),
+      );
+      model.add(edges);
       applyTransform(model, transformRef.current);
       scene.add(model);
       modelRef.current = model;
@@ -196,7 +229,15 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
       const model = modelRef.current;
       if (model) {
         model.geometry.dispose();
-        (model.material as THREE.Material).dispose();
+        const material = model.material as THREE.MeshMatcapMaterial;
+        material.matcap?.dispose();
+        material.dispose();
+        model.children.forEach((child) => {
+          if (child instanceof THREE.LineSegments) {
+            child.geometry.dispose();
+            (child.material as THREE.Material).dispose();
+          }
+        });
       }
       modelRef.current = null;
       if (axisIndicators) disposeGroup(axisIndicators);
