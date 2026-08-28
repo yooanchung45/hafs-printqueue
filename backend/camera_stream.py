@@ -24,9 +24,11 @@ MAX_FRAME_BYTES = 5 * 1024 * 1024
 # tearing it down. This is a full-page app, so every navigation away from
 # the dashboard drops the subscriber and every navigation back creates a new
 # one — a short grace period meant reconnecting almost always paid the full
-# cost of a fresh TLS handshake + auth + wait for the first frame. Long
-# enough to survive normal "click into a job, click back" browsing.
-IDLE_GRACE_SECONDS = 45.0
+# cost of a fresh TLS handshake + auth + wait for the first frame. Five
+# minutes comfortably covers tabbing away, reading a job, checking another
+# page and coming back; the cost is one idle TLS connection per recently
+# viewed printer on the LAN, which is cheap.
+IDLE_GRACE_SECONDS = 300.0
 READ_TIMEOUT_SECONDS = 15.0
 
 
@@ -93,6 +95,25 @@ class CameraSession:
                 self._stop_handle = loop.call_later(
                     IDLE_GRACE_SECONDS, self._stop_if_idle
                 )
+
+    async def snapshot(self, timeout: float = 12.0) -> bytes:
+        """Return one current JPEG frame.
+
+        Instant when the upstream is already warm (returns the buffered
+        frame); otherwise spins the upstream up, waits for the first frame,
+        and — because it leaves through ``subscribe``'s ``finally`` — keeps
+        it warm afterwards so the live stream request that follows connects
+        to an already-running session.
+        """
+        if self.frame is not None:
+            return self.frame
+
+        async def _first() -> bytes:
+            async for frame in self.subscribe():
+                return frame
+            raise ConnectionError("카메라 프레임을 받지 못했습니다")
+
+        return await asyncio.wait_for(_first(), timeout)
 
     def _stop_if_idle(self) -> None:
         self._stop_handle = None
