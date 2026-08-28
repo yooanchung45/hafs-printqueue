@@ -94,10 +94,15 @@
     --color-danger: oklch(70% 0.17 25);
     --color-danger-soft: oklch(28% 0.06 25);
     --color-neutral-soft: oklch(24% 0.016 250);
+    /* stl-viewer.tsx uses these as actual Three.js light/material colors, not
+     * page surfaces — color-model-light in particular is the lamp color, so
+     * it stays white in both themes (a dark "light" just dims the model).
+     * fill/grid are brightened well past the ~17-26% paper lightness above,
+     * or the grid and axis lines disappear into the dark background. */
     --color-model: #60a5fa;
-    --color-model-light: #1e293b;
-    --color-model-fill: #3b4a63;
-    --color-model-grid: #2a3548;
+    --color-model-light: #ffffff;
+    --color-model-fill: #64748b;
+    --color-model-grid: #475569;
   }
 }
 

@@ -24,7 +24,7 @@ const AXIS_SPECS: { dir: [number, number, number]; color: string; label: string 
   { dir: [0, 1, 0], color: "#3b82f6", label: "Z" },
 ];
 
-function makeAxisLabel(text: string, color: string): THREE.Sprite {
+function makeAxisLabel(text: string, color: string, size: number): THREE.Sprite {
   const canvas = document.createElement("canvas");
   canvas.width = 64;
   canvas.height = 64;
@@ -39,13 +39,13 @@ function makeAxisLabel(text: string, color: string): THREE.Sprite {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
-  sprite.scale.set(18, 18, 1);
+  sprite.scale.set(size, size, 1);
   return sprite;
 }
 
-function buildAxisIndicators(): THREE.Group {
+function buildAxisIndicators(length: number): THREE.Group {
   const group = new THREE.Group();
-  const length = 140;
+  const labelGap = Math.max(length * 0.1, 8);
   for (const { dir, color, label } of AXIS_SPECS) {
     const end = new THREE.Vector3(dir[0] * length, dir[1] * length, dir[2] * length);
     const start = new THREE.Vector3(0, 0, 0);
@@ -53,8 +53,8 @@ function buildAxisIndicators(): THREE.Group {
     const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
     const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color }));
     group.add(line);
-    const sprite = makeAxisLabel(label, color);
-    sprite.position.copy(end).addScaledVector(new THREE.Vector3(...dir), 14);
+    const sprite = makeAxisLabel(label, color, Math.max(length * 0.13, 10));
+    sprite.position.copy(end).addScaledVector(new THREE.Vector3(...dir), labelGap);
     group.add(sprite);
   }
   return group;
@@ -115,14 +115,21 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     const fillColor = tokenColor("--color-model-fill");
     const gridColor = tokenColor("--color-model-grid");
 
-    scene.add(new THREE.HemisphereLight(lightColor, fillColor, 1.8));
-    const light = new THREE.DirectionalLight(lightColor, 2.4);
-    light.position.set(3, 5, 4);
-    scene.add(light);
+    // A true ambient floor so no face ever renders fully black regardless of
+    // token values, plus a fill light opposite the key light — one
+    // directional light alone left the far side of the model nearly
+    // unreadable in both themes, not just dark mode.
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    scene.add(new THREE.HemisphereLight(lightColor, fillColor, 1.4));
+    const key = new THREE.DirectionalLight(lightColor, 2.0);
+    key.position.set(3, 5, 4);
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(lightColor, 0.8);
+    fill.position.set(-4, 3, -3);
+    scene.add(fill);
     const grid = new THREE.GridHelper(256, 16, fillColor, gridColor);
     scene.add(grid);
-    const axisIndicators = buildAxisIndicators();
-    scene.add(axisIndicators);
+    let axisIndicators: THREE.Group | null = null;
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
@@ -149,6 +156,13 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
       camera.position.set(span * 1.25, span, span * 1.55);
       controls.target.set(0, size.y / 3, 0);
       controls.update();
+
+      // Sized relative to the model (and thus to how tightly the camera
+      // above is framed) rather than a fixed constant — a fixed-length axis
+      // easily lands outside the visible frustum for a small model, which
+      // is why the Z label was getting clipped at the top of the viewport.
+      axisIndicators = buildAxisIndicators(THREE.MathUtils.clamp(span * 1.1, 30, 120));
+      scene.add(axisIndicators);
     });
 
     const resize = () => {
@@ -177,7 +191,7 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
         (model.material as THREE.Material).dispose();
       }
       modelRef.current = null;
-      disposeGroup(axisIndicators);
+      if (axisIndicators) disposeGroup(axisIndicators);
       renderer.dispose();
       renderer.domElement.remove();
     };
