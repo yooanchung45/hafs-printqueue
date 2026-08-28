@@ -17,6 +17,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { User } from "@/lib/types";
 
 type Session = { authenticated: boolean; user: User | null };
@@ -100,9 +101,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Image className="brand-mark" src="/brand-mark.svg" alt="" width={27} height={27} />
           <span>PrintQueue</span>
         </Link>
-        <button className="icon-button" onClick={() => setMenuOpen((value) => !value)} aria-label="메뉴" aria-expanded={menuOpen}>
-          {menuOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
+        <div className="mobile-header-actions">
+          <ThemeToggle />
+          <button className="icon-button" onClick={() => setMenuOpen((value) => !value)} aria-label="메뉴" aria-expanded={menuOpen}>
+            {menuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </div>
       </header>
 
       <aside className={`sidebar ${menuOpen ? "sidebar-open" : ""}`}>
@@ -127,6 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <strong>{session.user.name}</strong>
             <span>{session.user.role === "admin" ? "관리자" : "학생"}</span>
           </div>
+          <ThemeToggle />
           <a href="/api/auth/logout" className="icon-button" aria-label="로그아웃" title="로그아웃">
             <LogOut size={17} />
           </a>

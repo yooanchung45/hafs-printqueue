@@ -23,10 +23,29 @@ export const metadata: Metadata = {
   },
 };
 
+// Sets data-theme before first paint, so the page never flashes the wrong
+// theme. Must run as a plain synchronous script (not a React effect, which
+// would only run after the initial paint) — this is why it's injected as raw
+// HTML instead of state. suppressHydrationWarning on <html> tells React not
+// to complain that this script changes the attribute after the server render.
+const THEME_BOOT_SCRIPT = `
+(function () {
+  var stored = localStorage.getItem('theme');
+  var theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', theme);
+})();
+`;
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ko" className={`${geistSans.variable} ${geistMono.variable}`}>
-      <body>
+    <html lang="ko" className={`${geistSans.variable} ${geistMono.variable}`} suppressHydrationWarning>
+      {/* suppressHydrationWarning here (not just on <html>) because browser
+          extensions (translation tools, AI writing assistants, etc.) commonly
+          inject attributes straight onto <body> before React hydrates —
+          this is Next.js's own recommended fix for that specific case, not
+          related to the theme script above. */}
+      <body suppressHydrationWarning>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
         <Suspense fallback={<div className="boot-screen">PrintQueue를 불러오는 중</div>}>
           <AppShell>{children}</AppShell>
         </Suspense>

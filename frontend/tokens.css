@@ -64,3 +64,66 @@
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 }
+
+/* Dark palette — same hue anchors as :root above (250 neutral, 257 accent/focus,
+ * 154 success, 75 warning, 25 danger), lightness/chroma re-tuned for a dark
+ * surface instead of just inverting numbers. Applies automatically when the OS
+ * is in dark mode and the user hasn't chosen "light" explicitly; the second
+ * block makes an explicit dark choice win even when the OS is set to light.
+ * See components/theme-toggle.tsx for how data-theme gets set.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-paper: oklch(17% 0.014 250);
+    --color-paper-2: oklch(21% 0.016 250);
+    --color-paper-3: oklch(26% 0.018 250);
+    --color-ink: oklch(94% 0.01 250);
+    --color-ink-2: oklch(80% 0.014 250);
+    --color-muted: oklch(63% 0.018 250);
+    --color-rule: oklch(32% 0.02 250);
+    --color-rule-2: oklch(27% 0.018 250);
+    --color-accent: oklch(70% 0.16 257);
+    --color-accent-strong: oklch(78% 0.15 257);
+    --color-accent-soft: oklch(28% 0.06 257);
+    --color-accent-ink: oklch(14% 0.03 257);
+    --color-focus: oklch(72% 0.17 257);
+    --color-success: oklch(72% 0.15 154);
+    --color-success-soft: oklch(26% 0.05 154);
+    --color-warning: oklch(75% 0.14 75);
+    --color-warning-soft: oklch(28% 0.05 75);
+    --color-danger: oklch(70% 0.17 25);
+    --color-danger-soft: oklch(28% 0.06 25);
+    --color-neutral-soft: oklch(24% 0.016 250);
+    --color-model: #60a5fa;
+    --color-model-light: #1e293b;
+    --color-model-fill: #3b4a63;
+    --color-model-grid: #2a3548;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-paper: oklch(17% 0.014 250);
+  --color-paper-2: oklch(21% 0.016 250);
+  --color-paper-3: oklch(26% 0.018 250);
+  --color-ink: oklch(94% 0.01 250);
+  --color-ink-2: oklch(80% 0.014 250);
+  --color-muted: oklch(63% 0.018 250);
+  --color-rule: oklch(32% 0.02 250);
+  --color-rule-2: oklch(27% 0.018 250);
+  --color-accent: oklch(70% 0.16 257);
+  --color-accent-strong: oklch(78% 0.15 257);
+  --color-accent-soft: oklch(28% 0.06 257);
+  --color-accent-ink: oklch(14% 0.03 257);
+  --color-focus: oklch(72% 0.17 257);
+  --color-success: oklch(72% 0.15 154);
+  --color-success-soft: oklch(26% 0.05 154);
+  --color-warning: oklch(75% 0.14 75);
+  --color-warning-soft: oklch(28% 0.05 75);
+  --color-danger: oklch(70% 0.17 25);
+  --color-danger-soft: oklch(28% 0.06 25);
+  --color-neutral-soft: oklch(24% 0.016 250);
+  --color-model: #60a5fa;
+  --color-model-light: #1e293b;
+  --color-model-fill: #3b4a63;
+  --color-model-grid: #2a3548;
+}
