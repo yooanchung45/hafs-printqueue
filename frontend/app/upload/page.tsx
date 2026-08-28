@@ -1,7 +1,7 @@
 "use client";
 
 import { Box, Check, CheckCircle2, FileArchive, FileUp, RotateCcw, RotateCw, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { StlViewer, type ModelTransform } from "@/components/stl-viewer";
@@ -13,13 +13,24 @@ type PreviewData = { files: TempFile[]; printers: Printer[] };
 type Dimensions = { x: number; y: number; z: number };
 const initialTransform: ModelTransform = { scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 };
 
+// Which printer the backend's pick_best_printer would land on for a blank
+// (자동 배정) choice: the healthy printer with the shortest queue, mirroring
+// the server logic so we can still show a filament palette under 자동 배정.
+function predictAutoPrinter(printers: Printer[]): Printer | undefined {
+  if (!printers.length) return undefined;
+  const healthy = printers.filter((printer) => printer.status !== "offline" && printer.status !== "error");
+  const pool = healthy.length ? healthy : printers;
+  return pool.reduce(
+    (best, printer) => ((printer.queue_count ?? 0) < (best.queue_count ?? 0) ? printer : best),
+    pool[0],
+  );
+}
+
 // Shared by both submission paths (direct .gcode.3mf upload and the STL
-// confirm step). Printer choice is optional (blank = the backend's
-// pick_best_printer picks whichever healthy printer has the shortest
-// queue). The filament dropdown is always shown for consistency, but only
-// becomes selectable once a specific printer is picked — slot layouts and
-// colors differ per printer, and under ✨ 스마트 배정 we don't yet know
-// which printer the job will land on.
+// confirm step). Printer choice is optional — blank routes through the
+// predicted auto-assign printer above so a colour can still be picked. The
+// colour list is a radio group of chips: a swatch (with a theme-flipping
+// outline, so black-on-dark / white-on-light stays visible) plus the name.
 function PrinterFilamentPicker({
   printers,
   printerId,
@@ -33,12 +44,12 @@ function PrinterFilamentPicker({
   slotIndex: string;
   onSlotChange: (value: string) => void;
 }) {
-  const selected = printers.find((printer) => String(printer.id) === printerId);
-  const loadedSlots = selected?.slots?.filter((item) => !item.is_empty) ?? [];
-  const noPrinter = !selected;
-  const noFilament = !noPrinter && loadedSlots.length === 0;
-  const disabled = noPrinter || noFilament;
-  const currentSwatch = loadedSlots.find((item) => String(item.slot_index) === slotIndex)?.color_hex ?? null;
+  const groupName = useId();
+  const explicit = printers.find((printer) => String(printer.id) === printerId);
+  const autoPrinter = printerId ? undefined : predictAutoPrinter(printers);
+  const effectivePrinter = explicit ?? autoPrinter;
+  const loadedSlots = effectivePrinter?.slots?.filter((item) => !item.is_empty) ?? [];
+
   return (
     <div className="picker-row">
       <div className="field">
@@ -56,42 +67,52 @@ function PrinterFilamentPicker({
         </select>
       </div>
       <div className="field">
-        <label htmlFor="filament-choice">필라멘트 색상</label>
-        <div className="filament-field">
-          {currentSwatch ? (
-            <span
-              className="filament-field-swatch"
-              style={{ "--filament": currentSwatch } as React.CSSProperties}
-              aria-hidden="true"
-            />
-          ) : null}
-          <select
-            id="filament-choice"
-            className="select"
-            value={disabled ? "" : slotIndex}
-            disabled={disabled}
-            onChange={(event) => onSlotChange(event.target.value)}
-          >
-            {noPrinter ? (
-              <option value="">프린터가 선택되지 않음</option>
-            ) : noFilament ? (
-              <option value="">로드된 필라멘트가 없음</option>
-            ) : (
-              <>
-                <option value="">색상 선호 없음</option>
-                {loadedSlots.map((item) => (
-                  <option
-                    key={item.id}
-                    value={item.slot_index}
-                    style={item.color_hex ? { color: item.color_hex } : undefined}
-                  >
-                    ● {item.color_name ?? "색상 미확인"} · {item.material_type ?? "재질 미확인"} (슬롯 {item.slot_index + 1})
-                  </option>
-                ))}
-              </>
-            )}
-          </select>
-        </div>
+        <span className="field-label filament-label-row">
+          필라멘트 색상
+          {autoPrinter ? <span className="field-hint">{autoPrinter.name} 기준</span> : null}
+        </span>
+        {!effectivePrinter ? (
+          <p className="filament-empty">프린터가 선택되지 않음</p>
+        ) : loadedSlots.length === 0 ? (
+          <p className="filament-empty">로드된 필라멘트가 없음</p>
+        ) : (
+          <div className="filament-options" role="radiogroup" aria-label="필라멘트 색상">
+            <label className={`filament-chip${slotIndex === "" ? " is-selected" : ""}`}>
+              <input
+                type="radio"
+                className="sr-only"
+                name={groupName}
+                checked={slotIndex === ""}
+                onChange={() => onSlotChange("")}
+              />
+              <span className="filament-dot filament-dot-none" aria-hidden="true" />
+              <span>선호 없음</span>
+            </label>
+            {loadedSlots.map((item) => {
+              const value = String(item.slot_index);
+              return (
+                <label key={item.id} className={`filament-chip${slotIndex === value ? " is-selected" : ""}`}>
+                  <input
+                    type="radio"
+                    className="sr-only"
+                    name={groupName}
+                    checked={slotIndex === value}
+                    onChange={() => onSlotChange(value)}
+                  />
+                  <span
+                    className="filament-dot"
+                    style={{ "--filament": item.color_hex ?? "transparent" } as React.CSSProperties}
+                    aria-hidden="true"
+                  />
+                  <span>
+                    {item.color_name ?? "색상 미확인"} · {item.material_type ?? "재질 미확인"}
+                    <small> 슬롯 {item.slot_index + 1}</small>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
