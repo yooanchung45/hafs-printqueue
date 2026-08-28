@@ -1,5 +1,6 @@
 """Student-facing print job API routes."""
 import asyncio
+import logging
 import re
 import uuid
 import zipfile
@@ -18,6 +19,8 @@ from db import get_db
 from models import FilamentSlot, Job, JobStatus, Printer, User, UserRole
 from notifications import notify_new_jobs
 
+
+logger = logging.getLogger("jobs")
 
 router = APIRouter(prefix="/api", tags=["jobs"])
 ALLOWED_SLICED_SUFFIX = ".gcode.3mf"
@@ -244,8 +247,12 @@ async def _slice_job_bg(job_id: int, stl_path: str, original_name: str):
             job.file_size = Path(final_path).stat().st_size
             job.estimated_minutes = estimated_minutes
         except SlicingError as exc:
+            # Keep the original .stl so the admin can still download it and
+            # slice by hand; the reason is surfaced on the approval row.
+            logger.warning("슬라이싱 실패 job=%s file=%s: %s", job_id, original_name, exc.message)
             job.admin_notes = f"[슬라이싱 실패] {exc.message}"
         except Exception as exc:
+            logger.exception("슬라이싱 오류 job=%s file=%s", job_id, original_name)
             job.admin_notes = f"[슬라이싱 오류] {type(exc).__name__}: {exc}"
         finally:
             job.status = JobStatus.PENDING_APPROVAL
