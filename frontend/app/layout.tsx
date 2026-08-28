@@ -8,9 +8,16 @@ import "./globals.css";
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
+const SITE_URL = "https://printer.hafs.hs.kr";
+const SITE_NAME = "HAFS PrintQueue";
+const SITE_DESCRIPTION = "외대부고 3D 프린터 출력 시스템";
+
 export const metadata: Metadata = {
-  title: { default: "HAFS PrintQueue", template: "%s · HAFS PrintQueue" },
-  description: "외대부고 3D 프린터 출력 시스템",
+  // Resolves relative OG/icon URLs to absolute — without this, link crawlers
+  // (KakaoTalk, Slack, …) receive localhost image URLs and show no preview.
+  metadataBase: new URL(SITE_URL),
+  title: { default: SITE_NAME, template: `%s · ${SITE_NAME}` },
+  description: SITE_DESCRIPTION,
   icons: {
     icon: [
       { url: "/brand-mark.svg", type: "image/svg+xml" },
@@ -20,6 +27,24 @@ export const metadata: Metadata = {
     ],
     shortcut: "/brand-mark.svg",
     apple: "/favicon-180x180.png",
+  },
+  // KakaoTalk / Slack / iMessage link previews. Image must be PNG/JPG (SVG is
+  // not supported) — brand-logo.png is 2000×480; the dimensions let clients
+  // lay it out as a wide wordmark instead of hard-cropping it square.
+  openGraph: {
+    type: "website",
+    siteName: SITE_NAME,
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    url: SITE_URL,
+    locale: "ko_KR",
+    images: [{ url: "/brand-logo.png", width: 2000, height: 480, alt: SITE_NAME }],
+  },
+  twitter: {
+    card: "summary",
+    title: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    images: ["/brand-logo.png"],
   },
 };
 
