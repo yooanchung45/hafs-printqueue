@@ -14,6 +14,46 @@ export interface ModelTransform {
 
 const DEFAULT_TRANSFORM: ModelTransform = { scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 };
 
+// Beyond this triangle count the crease-edge overlay (THREE.EdgesGeometry) costs
+// more than it's worth — it walks every triangle and every shared edge on the
+// main thread, which is what made large models crawl. The matcap alone still
+// conveys form, so past the limit we skip the overlay.
+const EDGE_TRIANGLE_LIMIT = 150_000;
+
+// Parsed, normal-resolved, bed-centred geometry keyed by source URL. STL files
+// are immutable and the viewer never mutates the geometry (scale/rotation live
+// on the mesh), so entries are shared across mounts and file-tab switches
+// instead of refetching + reparsing every time. The cache owns these — they are
+// disposed on eviction, never on viewer unmount.
+const geometryCache = new Map<string, THREE.BufferGeometry>();
+const GEOMETRY_CACHE_LIMIT = 8;
+
+function cacheGeometry(url: string, geometry: THREE.BufferGeometry) {
+  geometryCache.set(url, geometry);
+  while (geometryCache.size > GEOMETRY_CACHE_LIMIT) {
+    const oldest = geometryCache.keys().next().value as string | undefined;
+    if (oldest === undefined || oldest === url) break;
+    geometryCache.get(oldest)?.dispose();
+    geometryCache.delete(oldest);
+  }
+}
+
+// STLLoader copies the per-facet normals straight from the file for both binary
+// and ASCII STL, so most models already have usable normals and the extra
+// computeVertexNormals() pass (which also smooths away the faceting a print
+// preview should show) is pure cost. Only recompute when the file left them
+// zeroed. Sampling the first slice is enough — STL normals are per triangle.
+function hasUsableNormals(geometry: THREE.BufferGeometry): boolean {
+  const normal = geometry.getAttribute("normal");
+  if (!normal) return false;
+  const array = normal.array as ArrayLike<number>;
+  const sample = Math.min(array.length, 1200);
+  for (let i = 0; i < sample; i += 1) {
+    if (array[i] !== 0) return true;
+  }
+  return false;
+}
+
 // Bed axes as the printer sees them (X/Y horizontal, Z = height) — not
 // three.js's own axis naming. The scene is Y-up for rendering (see the
 // rotationX - 90 below), so printer-Z maps to scene +Y, printer-Y maps to
@@ -171,22 +211,25 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     controls.dampingFactor = 0.08;
 
     let frame = 0;
-    const loader = new STLLoader();
-    loader.load(url, (geometry) => {
-      geometry.computeVertexNormals();
+    let disposed = false;
+
+    const buildModel = (geometry: THREE.BufferGeometry) => {
+      if (disposed) return;
       geometry.computeBoundingBox();
       const originalSize = geometry.boundingBox?.getSize(new THREE.Vector3());
       if (originalSize) onDimensionsRef.current?.({ x: originalSize.x, y: originalSize.y, z: originalSize.z });
-      geometry.center();
       const model = new THREE.Mesh(
         geometry,
         new THREE.MeshMatcapMaterial({ matcap: makeMatcap(modelColor) }),
       );
-      const edges = new THREE.LineSegments(
-        new THREE.EdgesGeometry(geometry, 24),
-        new THREE.LineBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.55 }),
-      );
-      model.add(edges);
+      const triangleCount = geometry.getAttribute("position").count / 3;
+      if (triangleCount <= EDGE_TRIANGLE_LIMIT) {
+        const edges = new THREE.LineSegments(
+          new THREE.EdgesGeometry(geometry, 24),
+          new THREE.LineBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.55 }),
+        );
+        model.add(edges);
+      }
       applyTransform(model, transformRef.current);
       scene.add(model);
       modelRef.current = model;
@@ -204,7 +247,26 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
       // is why the Z label was getting clipped at the top of the viewport.
       axisIndicators = buildAxisIndicators(THREE.MathUtils.clamp(span * 1.1, 30, 120));
       scene.add(axisIndicators);
-    });
+    };
+
+    const cached = geometryCache.get(url);
+    if (cached) {
+      buildModel(cached);
+    } else {
+      const loader = new STLLoader();
+      loader.load(
+        url,
+        (geometry) => {
+          if (!hasUsableNormals(geometry)) geometry.computeVertexNormals();
+          geometry.computeBoundingBox();
+          geometry.center();
+          cacheGeometry(url, geometry);
+          buildModel(geometry);
+        },
+        undefined,
+        (error) => console.warn("STL 미리보기를 불러오지 못했습니다", error),
+      );
+    }
 
     const resize = () => {
       const width = Math.max(mount.clientWidth, 1);
@@ -223,12 +285,13 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     };
     render();
     return () => {
+      disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
       controls.dispose();
       const model = modelRef.current;
       if (model) {
-        model.geometry.dispose();
+        // geometry is owned by geometryCache — don't dispose it here
         const material = model.material as THREE.MeshMatcapMaterial;
         material.matcap?.dispose();
         material.dispose();
