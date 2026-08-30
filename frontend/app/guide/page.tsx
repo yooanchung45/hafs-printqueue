@@ -8,11 +8,10 @@ import { Box, Download, ExternalLink, FileArchive, Upload } from "lucide-react";
 
 type Step = { title: string; image?: string; text: ReactNode; items: string[]; tip?: ReactNode };
 
-// Screenshots go in frontend/public/guide/ — add `image: "/guide/stl-step1.png"`
-// etc. once they exist; the layout swaps to the image grid automatically.
 const stlSteps: Step[] = [
   {
     title: "STL 파일 올리기",
+    image: "/guide/stl-step1.png",
     text: <>출력 신청 페이지에서 <strong>.stl</strong> 파일을 선택하거나 끌어다 놓고 <strong>3D 미리보기</strong>를 누릅니다. 설치할 프로그램은 없습니다.</>,
     items: [
       "여러 파일을 한 번에 올리면 한 판에 모아 한 번의 출력으로 처리합니다.",
@@ -21,6 +20,7 @@ const stlSteps: Step[] = [
   },
   {
     title: "크기와 방향 확인하기",
+    image: "/guide/stl-step2.png",
     text: <>베드 위에서 <strong>크기</strong>와 <strong>회전</strong>을 조정해 A1 베드(<strong>256 × 256mm</strong>) 안에 들어오게 합니다. 회전 다이얼은 클릭해 각도를 입력하거나 돌려서 맞출 수 있습니다.</>,
     items: [
       "처음이라면 5~8cm 크기를 권장합니다.",
@@ -30,6 +30,7 @@ const stlSteps: Step[] = [
   },
   {
     title: "프린터·색상 고르고 신청하기",
+    image: "/guide/stl-step3.png",
     text: <>프린터(또는 자동 배정)와 <strong>필라멘트 색상</strong>을 고르고 <strong>출력 신청</strong>을 누릅니다. 서버가 자동으로 슬라이싱하고, 관리자 승인 후 차례대로 출력됩니다.</>,
     items: [
       "받침(서포트)은 자동으로 추가되지 않습니다.",
