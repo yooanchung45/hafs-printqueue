@@ -794,13 +794,13 @@ export default function UploadPage() {
   }
   return (
     <div className="page">
-      <header className="page-header"><div><h1>출력 신청</h1><p>STL을 바로 슬라이싱하거나 Bambu Studio에서 준비한 파일을 제출할 수 있습니다.</p></div></header>
+      <header className="page-header"><div><h1>출력 신청</h1><p>STL 파일을 바로 올리면 사이트가 자동으로 슬라이싱합니다. 이미 슬라이싱한 파일은 오른쪽에 제출하세요.</p></div></header>
       {error ? <div className="notice notice-danger error-banner">{error}</div> : null}
       <div className="upload-grid">
         <section className="card upload-path">
           <div className="upload-path-title"><Box size={22} /><div><h2>STL 파일</h2><p>브라우저에서 크기와 회전을 확인한 뒤 서버에서 슬라이싱합니다.</p></div></div>
           <FilePicker id="stl-files" acceptAttribute=".stl" accept={(file) => file.name.toLowerCase().endsWith(".stl")} files={stlFiles} onFiles={setStlFiles} title="STL 파일 선택 또는 드롭" hint="여러 파일 · 각 파일 최대 100MB" />
-          <div className="notice upload-guidance">복잡한 모델은 Bambu Studio로 직접 슬라이싱하면 더 정확하게 설정할 수 있습니다.</div>
+          <div className="notice upload-guidance">받침(서포트)이 필요한 모델만 Bambu Studio로 준비하세요. 나머지는 이대로 올리면 됩니다.</div>
           <button className="button button-primary button-full" disabled={!stlFiles.length || busy} onClick={openStlWorkbench}><Box size={16} /> 3D 미리보기</button>
         </section>
         <section className="card upload-path">
