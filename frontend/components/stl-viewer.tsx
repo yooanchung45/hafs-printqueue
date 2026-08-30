@@ -326,6 +326,30 @@ interface PlateScene {
   boxIndex: number | null;
 }
 
+// X/Y/Z gnomon anchored at a bed corner, drawn in bedGroup-local (slicer)
+// coordinates: +X to the right, +Y toward the back of the bed, +Z up.
+function buildBedAxes(length: number): THREE.Group {
+  const group = new THREE.Group();
+  group.position.set(-BED_MM / 2, -BED_MM / 2, 0);
+  const specs: { dir: [number, number, number]; color: string; label: string }[] = [
+    { dir: [1, 0, 0], color: "#ef4444", label: "X" },
+    { dir: [0, 1, 0], color: "#22c55e", label: "Y" },
+    { dir: [0, 0, 1], color: "#3b82f6", label: "Z" },
+  ];
+  for (const { dir, color, label } of specs) {
+    const end = new THREE.Vector3(...dir).multiplyScalar(length);
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), end]),
+      new THREE.LineBasicMaterial({ color }),
+    );
+    group.add(line);
+    const sprite = makeAxisLabel(label, color, Math.max(length * 0.28, 14));
+    sprite.position.copy(end).addScaledVector(new THREE.Vector3(...dir), length * 0.12);
+    group.add(sprite);
+  }
+  return group;
+}
+
 export function StlPlateEditor({
   parts,
   selected,
@@ -448,6 +472,8 @@ export function StlPlateEditor({
     const grid = new THREE.GridHelper(BED_MM, 16, fillColor, gridColor);
     grid.rotation.x = Math.PI / 2; // lay it in the group's local XY plane
     bedGroup.add(grid);
+    const bedAxes = buildBedAxes(44);
+    bedGroup.add(bedAxes);
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -613,6 +639,9 @@ export function StlPlateEditor({
       state.meshes.forEach((mesh) => {
         if (mesh) (mesh.material as THREE.Material).dispose(); // geometry owned by the cache
       });
+      disposeGroup(bedAxes);
+      grid.geometry.dispose();
+      (grid.material as THREE.Material).dispose();
       if (state.boxHelper) state.boxHelper.geometry.dispose();
       renderer.dispose();
       renderer.domElement.remove();
