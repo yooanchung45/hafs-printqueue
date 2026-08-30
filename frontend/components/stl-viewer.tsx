@@ -167,6 +167,7 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
+    controls.zoomToCursor = true; // wheel zooms toward the point under the cursor
 
     let frame = 0;
     let disposed = false;
