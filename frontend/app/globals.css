@@ -402,6 +402,9 @@ h1 { font-weight: 650; }
 .guide-step figure img { border: var(--rule-thin) solid var(--color-rule-2); border-radius: var(--radius-lg); display: block; height: auto; width: 100%; }
 .faq { margin: var(--space-3xl) auto; max-width: 54rem; }
 .faq > h2 { font-size: var(--text-xl); margin-bottom: var(--space-lg); }
+.faq-group { margin-top: var(--space-2xl); }
+.faq-group:first-of-type { margin-top: 0; }
+.faq-group h3 { color: var(--color-muted); font-size: var(--text-sm); font-weight: 700; letter-spacing: 0.03em; margin-bottom: var(--space-xs); }
 .faq details { border-top: var(--rule-thin) solid var(--color-rule); }
 .faq details:last-child { border-bottom: var(--rule-thin) solid var(--color-rule); }
 .faq summary { cursor: pointer; font-weight: 700; padding: var(--space-md) 0; }
