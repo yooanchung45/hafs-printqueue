@@ -110,7 +110,6 @@ export default function GuidePage() {
           aria-pressed={tab === "stl"}
           onClick={() => setTab("stl")}
         >
-          <span className="guide-badge">추천</span>
           <Box size={23} />
           <h2>STL 바로 업로드</h2>
           <p>STL 파일을 올리면 사이트에서 크기·방향을 확인하고 자동으로 슬라이싱합니다. 설치할 프로그램이 없습니다.</p>
