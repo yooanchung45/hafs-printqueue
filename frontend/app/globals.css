@@ -324,6 +324,12 @@ h1 { font-weight: 650; }
 .rotation-grid > div { align-items: center; display: grid; gap: var(--space-xs); grid-template-columns: 1rem 3.5rem minmax(2.5rem, 1fr) 3.5rem; padding: var(--space-2xs) 0; }
 .rotation-grid > div > span { color: var(--color-muted); font-family: var(--font-mono); font-weight: 700; }
 .rotation-grid strong { font-family: var(--font-mono); font-size: var(--text-xs); text-align: center; }
+.angle-dial { align-items: center; border: var(--rule-thin) solid var(--color-rule-2); border-radius: 50%; cursor: grab; display: flex; height: 2.75rem; justify-content: center; justify-self: center; position: relative; touch-action: none; user-select: none; width: 2.75rem; }
+.angle-dial:active { cursor: grabbing; }
+.angle-dial::before { background: var(--color-accent); border-radius: 1px; content: ""; height: 0.55rem; left: calc(50% - 1px); position: absolute; top: 2px; transform: rotate(var(--angle, 0deg)); transform-origin: 1px calc(1.375rem - 2px); width: 2px; }
+.angle-dial strong { font-family: var(--font-mono); font-size: var(--text-xs); }
+.angle-dial input { appearance: textfield; -moz-appearance: textfield; background: transparent; border: 0; color: inherit; font: inherit; font-size: var(--text-xs); min-width: 0; text-align: center; width: 100%; }
+.angle-dial input::-webkit-inner-spin-button, .angle-dial input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .tabs { border-bottom: var(--rule-thin) solid var(--color-rule); display: flex; flex-wrap: wrap; gap: var(--space-lg); margin-bottom: var(--space-md); overflow: clip; }
 .tab { color: var(--color-muted); font-weight: 650; padding: var(--space-sm) 0; position: relative; text-decoration: none; white-space: nowrap; }
 .tab-active { color: var(--color-accent-strong); }

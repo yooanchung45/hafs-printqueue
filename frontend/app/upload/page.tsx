@@ -172,6 +172,86 @@ function SubmissionSuccessDialog({ onContinue }: { onContinue: () => void }) {
   );
 }
 
+function normalizeAngle(deg: number): number {
+  const r = Math.round(deg) % 360;
+  return r < 0 ? r + 360 : r;
+}
+
+/** The 0° readout in the rotation grid: click to type an exact angle, or grab
+ * and spin it like a rotation knob in a 3D app. */
+function AngleDial({ value, onChange }: { value: number; onChange: (deg: number) => void }) {
+  const [editing, setEditing] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const drag = useRef<{ last: number; acc: number; travel: number } | null>(null);
+
+  useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+
+  const pointerAngle = (event: React.PointerEvent) => {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return 0;
+    return (
+      (Math.atan2(event.clientY - (rect.top + rect.height / 2), event.clientX - (rect.left + rect.width / 2)) * 180) /
+      Math.PI
+    );
+  };
+  const onPointerDown = (event: React.PointerEvent) => {
+    if (editing) return;
+    drag.current = { last: pointerAngle(event), acc: value, travel: 0 };
+    wrapRef.current?.setPointerCapture(event.pointerId);
+  };
+  const onPointerMove = (event: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d) return;
+    const now = pointerAngle(event);
+    let step = now - d.last;
+    if (step > 180) step -= 360;
+    else if (step < -180) step += 360;
+    d.last = now;
+    d.acc += step;
+    d.travel += Math.abs(step);
+    onChange(normalizeAngle(d.acc));
+  };
+  const onPointerUp = (event: React.PointerEvent) => {
+    const d = drag.current;
+    drag.current = null;
+    try { wrapRef.current?.releasePointerCapture(event.pointerId); } catch { /* ignore */ }
+    if (d && d.travel < 4) setEditing(true);
+  };
+  const commit = (raw: string) => {
+    const n = Number(raw);
+    if (Number.isFinite(n)) onChange(normalizeAngle(n));
+    setEditing(false);
+  };
+
+  return (
+    <div
+      ref={wrapRef}
+      className="angle-dial"
+      style={{ "--angle": `${value}deg` } as React.CSSProperties}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      title="드래그로 회전 · 클릭해서 각도 입력"
+    >
+      {editing ? (
+        <input
+          ref={inputRef}
+          type="number"
+          defaultValue={Math.round(value)}
+          onBlur={(event) => commit(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") commit((event.target as HTMLInputElement).value);
+            if (event.key === "Escape") setEditing(false);
+          }}
+        />
+      ) : (
+        <strong>{Math.round(value)}°</strong>
+      )}
+    </div>
+  );
+}
+
 function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void }) {
   const router = useRouter();
   const [selected, setSelected] = useState(0);
@@ -259,7 +339,7 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
             {tooLarge ? <div className="notice notice-danger">출력 가능 범위 256 × 256 × 256mm를 초과합니다.</div> : null}
             <div className="field transform-field"><label htmlFor="scale">크기 · {Math.round(current.scale * 100)}%</label><input id="scale" type="range" min="1" max="400" value={Math.round(current.scale * 100)} onChange={(event) => setCurrent({ scale: Number(event.target.value) / 100 })} /></div>
             <div className="preset-row">{[25, 50, 75, 100].map((percent) => <button key={percent} className="button button-secondary button-small" onClick={() => setCurrent({ scale: percent / 100 })}>{percent}%</button>)}</div>
-            <div className="rotation-grid">{(["rotationX", "rotationY", "rotationZ"] as const).map((axis) => <div key={axis}><span>{axis.slice(-1)}</span><button className="button button-secondary button-small" aria-label={`${axis.slice(-1)}축 반시계 방향 90도 회전`} title="−90°" onClick={() => setCurrent({ [axis]: current[axis] - 90 })}><RotateCcw size={15} /></button><strong>{current[axis]}°</strong><button className="button button-secondary button-small" aria-label={`${axis.slice(-1)}축 시계 방향 90도 회전`} title="+90°" onClick={() => setCurrent({ [axis]: current[axis] + 90 })}><RotateCw size={15} /></button></div>)}</div>
+            <div className="rotation-grid">{(["rotationX", "rotationY", "rotationZ"] as const).map((axis) => <div key={axis}><span>{axis.slice(-1)}</span><button className="button button-secondary button-small" aria-label={`${axis.slice(-1)}축 반시계 방향 90도 회전`} title="−90°" onClick={() => setCurrent({ [axis]: normalizeAngle(current[axis] - 90) })}><RotateCcw size={15} /></button><AngleDial value={current[axis]} onChange={(deg) => setCurrent({ [axis]: deg })} /><button className="button button-secondary button-small" aria-label={`${axis.slice(-1)}축 시계 방향 90도 회전`} title="+90°" onClick={() => setCurrent({ [axis]: normalizeAngle(current[axis] + 90) })}><RotateCw size={15} /></button></div>)}</div>
             <PrinterFilamentPicker printers={data.printers} printerId={printerId} onPrinterChange={setPrinterId} slotIndex={slotIndex} onSlotChange={setSlotIndex} />
             <div className="field"><label htmlFor="notes">관리자 메모</label><textarea id="notes" className="textarea" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="출력 시 참고할 내용 (선택)" /></div>
             <button className={`button button-primary button-full ${busy ? "button-loading" : ""}`} disabled={busy || tooLarge} onClick={confirm}><Check size={16} /> {data.files.length}개 파일 출력 신청</button>
@@ -605,16 +685,19 @@ function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => voi
                         className="button button-secondary button-small"
                         aria-label={`${axis.slice(-1)}축 반시계 90도`}
                         title="−90°"
-                        onClick={() => patchTransform(selected, { [axis]: sel.transform[axis] - 90 })}
+                        onClick={() => patchTransform(selected, { [axis]: normalizeAngle(sel.transform[axis] - 90) })}
                       >
                         <RotateCcw size={15} />
                       </button>
-                      <strong>{sel.transform[axis]}°</strong>
+                      <AngleDial
+                        value={sel.transform[axis]}
+                        onChange={(deg) => patchTransform(selected, { [axis]: deg })}
+                      />
                       <button
                         className="button button-secondary button-small"
                         aria-label={`${axis.slice(-1)}축 시계 90도`}
                         title="+90°"
-                        onClick={() => patchTransform(selected, { [axis]: sel.transform[axis] + 90 })}
+                        onClick={() => patchTransform(selected, { [axis]: normalizeAngle(sel.transform[axis] + 90) })}
                       >
                         <RotateCw size={15} />
                       </button>
