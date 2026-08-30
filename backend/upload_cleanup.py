@@ -5,15 +5,16 @@ canceled job kept its bytes on disk forever, and so did every completed print.
 On the Raspberry Pi's SD card that eventually fills the partition and new
 uploads start failing with a bare 500.
 
-This module deletes a job's artifacts the moment it reaches a state where the
-file is no longer needed, and runs a periodic sweep (also once at startup, to
-reclaim the existing backlog) for anything that slipped through — old
-terminal-state jobs and orphan files with no job row.
+Files for jobs that will never print again (rejected, or canceled before they
+started) are deleted the moment the handler runs. The periodic sweep (also once
+at startup, to reclaim the backlog) then removes: completed prints, retryable
+jobs past their grace window, and orphan files with no job row.
 """
 import asyncio
 import logging
 import re
 import time
+from datetime import timezone
 from pathlib import Path
 
 from sqlalchemy import select
@@ -23,17 +24,39 @@ from models import Job, JobStatus
 
 logger = logging.getLogger("upload_cleanup")
 
-# Deleted as soon as the job hits this state (reject / cancel handlers call
-# discard_job_files directly; the sweep mops up any that predate this change).
-IMMEDIATE_DISCARD = (JobStatus.REJECTED, JobStatus.CANCELED)
-# Print is finished — the server copy will never be read again. Swept, but the
-# Job row is kept for the audit trail / reports. FAILED is deliberately absent:
-# it can still be retried, and the admin "실패 정리" action owns its cleanup.
-SWEEP_DISCARD = IMMEDIATE_DISCARD + (JobStatus.COMPLETED,)
+# Swept unconditionally — the file will never be needed again.
+DISCARD_NOW = (JobStatus.REJECTED, JobStatus.COMPLETED)
+# Retryable: a FAILED job can be re-queued, and a print an admin stopped mid-run
+# can be reset on the printer and reprinted from the same file. Keep the file
+# this long so that stays possible, then let the sweep reclaim it.
+RETRYABLE_GRACE = 3 * 24 * 60 * 60
 
 SWEEP_INTERVAL = 6 * 60 * 60          # seconds between sweeps
 ORPHAN_MIN_AGE = 24 * 60 * 60        # don't touch a job-less file younger than this
 _UUID_NAME = re.compile(r"^[0-9a-f]{32}\.")
+
+
+def _age_seconds(job) -> float:
+    ref = job.completed_at or job.started_at or job.created_at
+    if ref is None:
+        return float("inf")
+    if ref.tzinfo is None:
+        ref = ref.replace(tzinfo=timezone.utc)
+    return time.time() - ref.timestamp()
+
+
+def _should_discard(job) -> bool:
+    if job.status in DISCARD_NOW:
+        return True
+    if job.status == JobStatus.FAILED:
+        return _age_seconds(job) > RETRYABLE_GRACE
+    if job.status == JobStatus.CANCELED:
+        # Stopped mid-print -> keep for the grace window so it can be reprinted.
+        # Canceled before it ever started printing -> dead weight, drop it now.
+        if job.started_at is None:
+            return True
+        return _age_seconds(job) > RETRYABLE_GRACE
+    return False
 
 
 def _siblings(file_path: str) -> set[Path]:
@@ -73,7 +96,7 @@ async def _sweep_once(db_maker) -> None:
     for job in jobs:
         if not job.file_path:
             continue
-        if job.status in SWEEP_DISCARD:
+        if _should_discard(job):
             freed += discard_job_files(job.file_path)
         else:
             keep.update(str(p) for p in _siblings(job.file_path))

@@ -943,11 +943,12 @@ async def cancel_job(
         printer.progress = None
 
     # An intentional administrator stop is a cancellation, not a print failure.
+    # Keep the file — the printer can be reset and the job reprinted; the
+    # cleanup sweep reclaims it after the retry grace window.
     job.status = JobStatus.CANCELED
     job.completed_at = _utcnow()
     job.failure_acknowledged = True
     await db.commit()
-    discard_job_files(job.file_path)  # print stopped — file already sent to the printer
 
     return {"ok": True, "job": job_dict(job, printer=printer)}
 
@@ -990,18 +991,17 @@ async def stop_printer(
             .where(Job.status == JobStatus.PRINTING)
             .order_by(Job.started_at.desc(), Job.id.desc())
         )).scalars().first()
-    canceled_file = None
     if job is not None and job.status == JobStatus.PRINTING:
+        # Keep the file so the print can be reset and re-run; the cleanup sweep
+        # reclaims it after the retry grace window.
         job.status = JobStatus.CANCELED
         job.completed_at = _utcnow()
         job.failure_acknowledged = True
         printer.current_job_id = None
-        canceled_file = job.file_path
 
     printer.status = PrinterStatus.IDLE
     printer.progress = None
     await db.commit()
-    discard_job_files(canceled_file)
     return {
         "ok": True,
         "printer": printer_admin_dict(printer),
