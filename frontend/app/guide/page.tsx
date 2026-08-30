@@ -115,7 +115,7 @@ export default function GuidePage() {
   const [tab, setTab] = useState<"stl" | "bambu">("stl");
 
   return (
-    <div className="page guide-page">
+    <div className={`page guide-page${tab === "bambu" ? " is-bambu" : ""}`}>
       <header className="page-header">
         <div>
           <h1>3D 출력, 처음부터 차근차근</h1>

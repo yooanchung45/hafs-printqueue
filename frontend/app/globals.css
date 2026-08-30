@@ -378,6 +378,32 @@ h1 { font-weight: 650; }
 .new-comment { display: flex; flex-direction: column; gap: var(--space-sm); margin-top: var(--space-lg); }
 .new-comment h3 { font-size: var(--text-sm); margin: 0; }
 .new-comment .button { align-self: flex-start; }
+/* Bambu Studio tab: re-hue the accent to Bambu Lab green. Custom props
+   inherit, so every var(--color-accent…) descendant follows. */
+.guide-page.is-bambu {
+  --color-accent: oklch(60% 0.17 152);
+  --color-accent-strong: oklch(52% 0.17 152);
+  --color-accent-soft: oklch(93% 0.045 152);
+  --color-accent-ink: oklch(99% 0.01 152);
+  --color-focus: oklch(62% 0.19 152);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .guide-page.is-bambu {
+    --color-accent: oklch(74% 0.15 152);
+    --color-accent-strong: oklch(82% 0.14 152);
+    --color-accent-soft: oklch(30% 0.07 152);
+    --color-accent-ink: oklch(16% 0.04 152);
+    --color-focus: oklch(76% 0.16 152);
+  }
+}
+:root[data-theme="dark"] .guide-page.is-bambu {
+  --color-accent: oklch(74% 0.15 152);
+  --color-accent-strong: oklch(82% 0.14 152);
+  --color-accent-soft: oklch(30% 0.07 152);
+  --color-accent-ink: oklch(16% 0.04 152);
+  --color-focus: oklch(76% 0.16 152);
+}
+
 .guide-choice { margin-bottom: var(--space-2xl); }
 .guide-choice-card { align-items: flex-start; color: inherit; cursor: pointer; display: flex; flex-direction: column; font: inherit; text-align: left; transition: border-color 0.12s, background 0.12s; width: 100%; }
 .guide-choice-card:hover { border-color: var(--color-rule-2); }
