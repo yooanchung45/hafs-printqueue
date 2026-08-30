@@ -18,7 +18,8 @@ from pathlib import Path
 # so the A1 shows a stuck % for site-sliced prints. We walk the gcode, add up
 # distance / feedrate with a trapezoidal accel envelope, and re-emit M73 at
 # every layer — time-weighted, not "linear per layer".
-_ACCEL_MM_S2 = 8000.0      # blended accel; A1 start gcode sets M204 P12000/T12000
+_ACCEL_MM_S2 = 7000.0      # blended accel — matches the profile's default 7000 /
+                           # perimeter 5000 / infill 9000 (M204 in the body)
 _TIME_CALIBRATION = 1.0    # global fudge on the simulated total; tune vs a real print
 _LAYER_MARKER = re.compile(r";\s*layer", re.IGNORECASE)
 _AXIS = re.compile(r"([XYZEF])(-?\d*\.?\d+)")

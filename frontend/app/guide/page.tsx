@@ -119,7 +119,6 @@ export default function GuidePage() {
       <header className="page-header">
         <div>
           <h1>3D 출력, 처음부터 차근차근</h1>
-          <p>대부분의 모델은 STL을 그대로 올리면 됩니다. 받침(서포트)이 꼭 필요할 때만 Bambu Studio를 사용하세요.</p>
         </div>
         <Link href="/upload" className="button button-primary"><Upload size={16} /> 출력 신청</Link>
       </header>
