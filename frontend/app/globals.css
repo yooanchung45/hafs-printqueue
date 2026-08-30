@@ -334,6 +334,13 @@ h1 { font-weight: 650; }
 .tab { color: var(--color-muted); font-weight: 650; padding: var(--space-sm) 0; position: relative; text-decoration: none; white-space: nowrap; }
 .tab-active { color: var(--color-accent-strong); }
 .tab-active::after { background: var(--color-accent); bottom: 0; content: ""; height: 2px; left: 0; position: absolute; right: 0; }
+/* Board category tabs: match each active tab to its badge colour. */
+.tab-all.tab-active { color: var(--color-ink); }
+.tab-all.tab-active::after { background: var(--color-ink-2); }
+.tab-announcement.tab-active { color: var(--color-warning); }
+.tab-announcement.tab-active::after { background: var(--color-warning); }
+.tab-free.tab-active { color: var(--color-success); }
+.tab-free.tab-active::after { background: var(--color-success); }
 .board-list { border-block: var(--rule-thin) solid var(--color-rule-2); }
 .board-row { align-items: center; display: grid; gap: var(--space-md); grid-template-columns: minmax(0, 1fr) auto; padding: var(--space-md) var(--space-sm); text-decoration: none; transition: background var(--dur-fast) var(--ease-out); }
 .board-row + .board-row { border-top: var(--rule-thin) solid var(--color-rule-2); }
@@ -435,9 +442,10 @@ h1 { font-weight: 650; }
 .faq details:last-child { border-bottom: var(--rule-thin) solid var(--color-rule); }
 .faq summary { cursor: pointer; font-weight: 700; padding: var(--space-md) 0; }
 .faq details p { color: var(--color-muted); padding: 0 0 var(--space-md); }
-.guide-finish { background: var(--color-accent-soft); border-radius: var(--radius-lg); padding: var(--space-2xl); text-align: center; }
-.guide-finish h2 { font-size: var(--text-xl); margin-bottom: var(--space-xs); }
-.guide-finish p { color: var(--color-ink-2); margin-bottom: var(--space-lg); }
+.guide-finish { align-items: center; background: var(--color-accent-soft); border-radius: var(--radius-lg); display: flex; flex-direction: column; gap: var(--space-sm); padding: var(--space-2xl); text-align: center; }
+.guide-finish h2 { font-size: var(--text-xl); margin: 0; }
+.guide-finish p { color: var(--color-ink-2); margin: 0; }
+.guide-finish .button { margin-top: var(--space-lg); }
 .admin-section { margin-top: var(--space-xl); }
 .admin-page .page-header h1 { margin-bottom: 0; }
 .section-heading { align-items: end; cursor: default; display: flex; gap: var(--space-md); justify-content: space-between; list-style: none; margin-bottom: var(--space-md); }
