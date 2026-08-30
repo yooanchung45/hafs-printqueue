@@ -107,8 +107,26 @@ function disposeGroup(group: THREE.Group) {
   });
 }
 
+const _boxVertex = new THREE.Vector3();
+
+/** Tight AABB of a mesh's vertices under its own local matrix (rotation + scale,
+ * position zeroed). Vertex-accurate, unlike boundingBox.applyMatrix4 which
+ * returns the AABB of the *rotated* AABB — far looser, and what left rotated
+ * parts hovering above the bed. Sampled on huge meshes so the rotation dial
+ * stays smooth; a skipped extreme vertex shifts the drop by <1mm. */
+function tightLocalBox(mesh: THREE.Mesh): THREE.Box3 {
+  const position = mesh.geometry.getAttribute("position");
+  const box = new THREE.Box3();
+  const stride = position.count > 60000 ? Math.ceil(position.count / 60000) : 1;
+  for (let i = 0; i < position.count; i += stride) {
+    _boxVertex.fromBufferAttribute(position, i).applyMatrix4(mesh.matrix);
+    box.expandByPoint(_boxVertex);
+  }
+  return box;
+}
+
 /** Rotate + scale the already-loaded model in place, then re-seat it on the
- * bed (rotating changes the bounding box height). Doesn't touch the camera
+ * bed (rotating changes which point is lowest). Doesn't touch the camera
  * or controls, so the current view is preserved. */
 function applyTransform(model: THREE.Mesh, transform: ModelTransform) {
   model.scale.setScalar(transform.scale);
@@ -117,10 +135,9 @@ function applyTransform(model: THREE.Mesh, transform: ModelTransform) {
     THREE.MathUtils.degToRad(transform.rotationY),
     THREE.MathUtils.degToRad(transform.rotationZ),
   );
-  model.position.y = 0;
-  const box = new THREE.Box3().setFromObject(model);
-  const size = box.getSize(new THREE.Vector3());
-  model.position.y = size.y / 2;
+  model.position.set(0, 0, 0);
+  model.updateMatrix();
+  model.position.y = -tightLocalBox(model).min.y;
 }
 
 export function StlViewer({ url, transform, className = "", onDimensions, onStats }: { url: string; transform?: ModelTransform; className?: string; onDimensions?: (size: { x: number; y: number; z: number }) => void; onStats?: (stats: { triangles: number }) => void }) {
@@ -304,24 +321,6 @@ export interface PartTransform {
 export interface PartMetrics {
   size: { x: number; y: number; z: number };  // transformed bounding-box dimensions, mm
   triangles: number;
-}
-
-const _boxVertex = new THREE.Vector3();
-
-/** Tight AABB of a mesh's vertices under its local matrix (rotation + scale,
- * position zeroed) — in the parent group's frame. Vertex-accurate, unlike
- * boundingBox.applyMatrix4 which returns the AABB of the rotated AABB. */
-function tightLocalBox(mesh: THREE.Mesh): THREE.Box3 {
-  const position = mesh.geometry.getAttribute("position");
-  const box = new THREE.Box3();
-  // Sample huge meshes so spinning the rotation dial stays smooth — a skipped
-  // extreme vertex shifts the drop by a fraction of a millimetre at most.
-  const stride = position.count > 60000 ? Math.ceil(position.count / 60000) : 1;
-  for (let i = 0; i < position.count; i += stride) {
-    _boxVertex.fromBufferAttribute(position, i).applyMatrix4(mesh.matrix);
-    box.expandByPoint(_boxVertex);
-  }
-  return box;
 }
 
 /** R = Rz·Ry·Rx applied to a column vector — matches backend merge_stls so the
