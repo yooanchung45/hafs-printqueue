@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
@@ -123,12 +123,15 @@ function applyTransform(model: THREE.Mesh, transform: ModelTransform) {
   model.position.y = size.y / 2;
 }
 
-export function StlViewer({ url, transform, className = "", onDimensions }: { url: string; transform?: ModelTransform; className?: string; onDimensions?: (size: { x: number; y: number; z: number }) => void }) {
+export function StlViewer({ url, transform, className = "", onDimensions, onStats }: { url: string; transform?: ModelTransform; className?: string; onDimensions?: (size: { x: number; y: number; z: number }) => void; onStats?: (stats: { triangles: number }) => void }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<THREE.Mesh | null>(null);
   const transformRef = useRef<ModelTransform>(transform ?? DEFAULT_TRANSFORM);
   const onDimensionsRef = useRef(onDimensions);
   onDimensionsRef.current = onDimensions;
+  const onStatsRef = useRef(onStats);
+  onStatsRef.current = onStats;
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   // Scene/camera/renderer/model setup — only ever tears down and rebuilds
   // when the file itself changes, not on every scale/rotation tweak.
@@ -171,12 +174,14 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
 
     let frame = 0;
     let disposed = false;
+    setStatus("loading");
 
     const buildModel = (geometry: THREE.BufferGeometry) => {
       if (disposed) return;
       geometry.computeBoundingBox();
       const originalSize = geometry.boundingBox?.getSize(new THREE.Vector3());
       if (originalSize) onDimensionsRef.current?.({ x: originalSize.x, y: originalSize.y, z: originalSize.z });
+      onStatsRef.current?.({ triangles: geometry.getAttribute("position").count / 3 });
       const model = new THREE.Mesh(
         geometry,
         new THREE.MeshPhongMaterial({
@@ -203,6 +208,7 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
       // is why the Z label was getting clipped at the top of the viewport.
       axisIndicators = buildAxisIndicators(THREE.MathUtils.clamp(span * 1.1, 30, 120));
       scene.add(axisIndicators);
+      setStatus("ready");
     };
 
     const cached = geometryCache.get(url);
@@ -220,7 +226,11 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
           buildModel(geometry);
         },
         undefined,
-        (error) => console.warn("STL 미리보기를 불러오지 못했습니다", error),
+        (error) => {
+          if (disposed) return;
+          console.warn("STL 미리보기를 불러오지 못했습니다", error);
+          setStatus("error");
+        },
       );
     }
 
@@ -269,5 +279,11 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     applyTransform(model, transformRef.current);
   }, [transform]);
 
-  return <div ref={mountRef} className={`stl-viewer ${className}`} role="img" aria-label="3D 모델 미리보기" />;
+  return (
+    <div className={`stl-viewer ${className}`} role="img" aria-label="3D 모델 미리보기">
+      <div ref={mountRef} className="stl-viewer-mount" />
+      {status === "loading" ? <div className="stl-viewer-overlay">불러오는 중…</div> : null}
+      {status === "error" ? <div className="stl-viewer-overlay is-error">모델을 불러오지 못했습니다</div> : null}
+    </div>
+  );
 }

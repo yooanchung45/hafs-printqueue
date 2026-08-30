@@ -170,6 +170,7 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
   const [selected, setSelected] = useState(0);
   const [transforms, setTransforms] = useState<ModelTransform[]>(data.files.map(() => ({ ...initialTransform })));
   const [dimensions, setDimensions] = useState<Record<number, Dimensions>>({});
+  const [triangles, setTriangles] = useState<Record<number, number>>({});
   const [notes, setNotes] = useState("");
   const [printerId, setPrinterId] = useState("");
   const [slotIndex, setSlotIndex] = useState("");
@@ -180,6 +181,18 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
   // 출력 신청 below. One blob URL per file, revoked when the workbench closes.
   const [objectUrls] = useState(() => data.files.map((entry) => URL.createObjectURL(entry.file)));
   useEffect(() => () => objectUrls.forEach((url) => URL.revokeObjectURL(url)), [objectUrls]);
+  // ← / → switch files (unless a form field has focus).
+  useEffect(() => {
+    if (data.files.length < 2) return;
+    const onKey = (event: KeyboardEvent) => {
+      const tag = (event.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (event.key === "ArrowLeft") setSelected((index) => Math.max(0, index - 1));
+      if (event.key === "ArrowRight") setSelected((index) => Math.min(data.files.length - 1, index + 1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [data.files.length]);
   const current = transforms[selected];
   const size = dimensions[selected];
   const scaled = size ? { x: size.x * current.scale, y: size.y * current.scale, z: size.z * current.scale } : null;
@@ -219,8 +232,17 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
       {error ? <div className="notice notice-danger error-banner">{error}</div> : null}
       <div className="workbench-grid">
         <section className="card workbench-viewer">
-          <StlViewer url={objectUrls[selected]} transform={current} onDimensions={useCallback((next: Dimensions) => setDimensions((values) => ({ ...values, [selected]: next })), [selected])} />
-          <p className="viewer-hint">256 × 256mm 베드 · 드래그로 회전 · 스크롤로 확대</p>
+          <StlViewer
+            url={objectUrls[selected]}
+            transform={current}
+            onDimensions={useCallback((next: Dimensions) => setDimensions((values) => ({ ...values, [selected]: next })), [selected])}
+            onStats={useCallback((next: { triangles: number }) => setTriangles((values) => ({ ...values, [selected]: next.triangles })), [selected])}
+          />
+          <p className="viewer-stat">
+            {triangles[selected] != null ? `삼각형 ${Math.round(triangles[selected]).toLocaleString()}개 · ` : ""}
+            {formatBytes(data.files[selected].file.size)}
+          </p>
+          <p className="viewer-hint">256 × 256mm 베드 · 드래그로 회전 · 스크롤로 확대{data.files.length > 1 ? " · ← → 파일 전환" : ""}</p>
           <div className="model-tabs">{data.files.map((file, index) => <button key={objectUrls[index]} className={selected === index ? "model-tab model-tab-active" : "model-tab"} onClick={() => setSelected(index)}>{index + 1}. {file.name}</button>)}</div>
         </section>
         <aside className="card transform-panel">
