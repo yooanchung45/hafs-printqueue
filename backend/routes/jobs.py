@@ -17,6 +17,7 @@ from config import settings
 from db import get_db
 from models import FilamentSlot, Job, JobStatus, Printer, User, UserRole
 from notifications import notify_new_jobs
+from upload_cleanup import discard_job_files
 
 
 logger = logging.getLogger("jobs")
@@ -341,6 +342,7 @@ async def cancel_job(
     job.status = JobStatus.CANCELED
     job.queue_position = None
     await db.commit()
+    discard_job_files(job.file_path)  # canceled — the STL/3MF is dead weight now
     if was_queued:
         queued = (
             await db.execute(

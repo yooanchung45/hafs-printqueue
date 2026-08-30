@@ -32,6 +32,7 @@ from api_serializers import job_dict, printer_admin_dict, printer_dict, user_dic
 from models import FilamentSlot, Job, JobStatus, Printer, User, PrinterStatus
 from email_service import send_approved_email, send_rejected_email, send_print_done_email
 from notifications import notify_print_failed, notify_print_started
+from upload_cleanup import discard_job_files
 
 
 _transfers: dict[str, dict] = {}
@@ -455,6 +456,7 @@ async def reject_job(
     job.status = JobStatus.REJECTED
     job.admin_notes = reason or None
     await db.commit()
+    discard_job_files(job.file_path)  # rejected — keep the row, drop the bytes
 
     if job_user:
         try:
@@ -945,6 +947,7 @@ async def cancel_job(
     job.completed_at = _utcnow()
     job.failure_acknowledged = True
     await db.commit()
+    discard_job_files(job.file_path)  # print stopped — file already sent to the printer
 
     return {"ok": True, "job": job_dict(job, printer=printer)}
 
@@ -987,15 +990,18 @@ async def stop_printer(
             .where(Job.status == JobStatus.PRINTING)
             .order_by(Job.started_at.desc(), Job.id.desc())
         )).scalars().first()
+    canceled_file = None
     if job is not None and job.status == JobStatus.PRINTING:
         job.status = JobStatus.CANCELED
         job.completed_at = _utcnow()
         job.failure_acknowledged = True
         printer.current_job_id = None
+        canceled_file = job.file_path
 
     printer.status = PrinterStatus.IDLE
     printer.progress = None
     await db.commit()
+    discard_job_files(canceled_file)
     return {
         "ok": True,
         "printer": printer_admin_dict(printer),
