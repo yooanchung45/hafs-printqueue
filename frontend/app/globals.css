@@ -302,6 +302,12 @@ h1 { font-weight: 650; }
 .model-tab { background: transparent; border: var(--rule-thin) solid var(--color-rule); border-radius: var(--radius-md); cursor: pointer; flex: 0 0 auto; max-width: 14rem; overflow: hidden; padding: var(--space-xs) var(--space-sm); text-overflow: ellipsis; white-space: nowrap; }
 .model-tab:hover { background: var(--color-paper-2); }
 .model-tab-active { background: var(--color-accent-soft); border-color: var(--color-accent); color: var(--color-accent-strong); }
+.part-list { display: flex; flex-direction: column; gap: var(--space-2xs); margin-top: var(--space-md); }
+.part-row { align-items: center; border: var(--rule-thin) solid var(--color-rule); border-radius: var(--radius-md); cursor: pointer; display: grid; gap: var(--space-xs); grid-template-columns: minmax(0, 1fr) auto auto; padding: var(--space-2xs) var(--space-xs); }
+.part-row:hover { background: var(--color-paper-2); }
+.part-row.is-selected { background: var(--color-accent-soft); border-color: var(--color-accent); }
+.part-row.is-invalid { border-color: var(--color-danger); color: var(--color-danger); }
+.part-row small { color: var(--color-muted); font-family: var(--font-mono); font-size: var(--text-xs); }
 .transform-panel .card-body { display: flex; flex-direction: column; gap: var(--space-md); }
 .dimension-row { display: grid; gap: var(--space-xs); grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .dimension-row label { align-items: center; background: var(--color-paper-2); border-radius: var(--radius-md); column-gap: var(--space-2xs); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; padding: var(--space-xs) var(--space-2xs); }

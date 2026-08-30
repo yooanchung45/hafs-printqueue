@@ -185,10 +185,11 @@ async def _slice_job_bg(
     stl_path: str,
     original_name: str,
     transform: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
+    parts: list[dict] | None = None,
 ):
     from db import async_session_maker
     from slicer import SlicingError, slice_stl
-    from stl_transform import apply_transform
+    from stl_transform import apply_transform, merge_stls
 
     async with async_session_maker() as db:
         job = (
@@ -197,17 +198,25 @@ async def _slice_job_bg(
         if job is None:
             return
         try:
-            # 뷰어에서 고른 스케일/회전을 STL에 적용한다. 큰 파일에서는 수십 초가
-            # 걸릴 수 있어 요청 핸들러가 아니라 여기(백그라운드)에서 처리한다.
+            # 변환/병합은 큰 파일에서 수십 초가 걸릴 수 있어 요청 핸들러가 아니라
+            # 여기(백그라운드)에서 처리한다.
             loop = asyncio.get_running_loop()
-            scale, rotation_x, rotation_y, rotation_z = transform
-            transformed_path = await loop.run_in_executor(
-                None, apply_transform, stl_path, scale, rotation_x, rotation_y, rotation_z
-            )
-            if transformed_path != stl_path:
-                Path(stl_path).unlink(missing_ok=True)
+            if parts:
+                # Several STLs arranged on one bed -> one merged STL, one slice.
+                transformed_path = await loop.run_in_executor(None, merge_stls, parts)
+                for part in parts:
+                    Path(part["path"]).unlink(missing_ok=True)
                 job.file_path = transformed_path
                 job.file_size = Path(transformed_path).stat().st_size
+            else:
+                scale, rotation_x, rotation_y, rotation_z = transform
+                transformed_path = await loop.run_in_executor(
+                    None, apply_transform, stl_path, scale, rotation_x, rotation_y, rotation_z
+                )
+                if transformed_path != stl_path:
+                    Path(stl_path).unlink(missing_ok=True)
+                    job.file_path = transformed_path
+                    job.file_size = Path(transformed_path).stat().st_size
             final_path, estimated_minutes = await slice_stl(transformed_path)
             job.file_path = final_path
             job.filename = Path(original_name).stem + Path(final_path).suffix
@@ -237,12 +246,15 @@ async def stl_confirm(
     rotations_x: List[float] = Form(...),
     rotations_y: List[float] = Form(...),
     rotations_z: List[float] = Form(...),
+    positions_x: List[float] = Form([]),
+    positions_y: List[float] = Form([]),
     user: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # The STL preview + scale/rotation UI is fully client-side now, so the file
-    # only ever reaches the server here, on submit — one upload, at the point
-    # the student expects to wait. Transform + slicing run in the background.
+    # The STL preview + layout UI is fully client-side; files only reach the
+    # server here, on submit. One file -> one job. Several files -> the student
+    # arranged them on one bed, so they merge into a single job / single slice.
+    # Transform, merge and slicing all run in the background.
     files = [file for file in files if file.filename]
     if not files:
         raise HTTPException(422, "파일을 선택해 주세요")
@@ -254,8 +266,8 @@ async def stl_confirm(
     notes = user_notes.strip() or None
     upload_dir = Path(settings.UPLOAD_DIR)
     upload_dir.mkdir(parents=True, exist_ok=True)
-    pending = []
-    jobs = []
+
+    saved = []  # (temp_path, original_name, size, part_spec)
     for index, file in enumerate(files):
         file_path = upload_dir / f"{uuid.uuid4().hex}.stl"
         total_size = 0
@@ -273,33 +285,62 @@ async def stl_confirm(
             file_path.unlink(missing_ok=True)
             logger.error("STL 저장 실패 file=%s: %s", file.filename, exc)
             raise HTTPException(507, "서버에 파일을 저장하지 못했습니다. 관리자에게 문의해 주세요")
-        transform = (
-            scales[index] if index < len(scales) else 1.0,
-            rotations_x[index] if index < len(rotations_x) else 0.0,
-            rotations_y[index] if index < len(rotations_y) else 0.0,
-            rotations_z[index] if index < len(rotations_z) else 0.0,
-        )
+        saved.append((
+            str(file_path),
+            file.filename,
+            total_size,
+            {
+                "path": str(file_path),
+                "scale": scales[index] if index < len(scales) else 1.0,
+                "rotation_x": rotations_x[index] if index < len(rotations_x) else 0.0,
+                "rotation_y": rotations_y[index] if index < len(rotations_y) else 0.0,
+                "rotation_z": rotations_z[index] if index < len(rotations_z) else 0.0,
+                "x": positions_x[index] if index < len(positions_x) else 0.0,
+                "y": positions_y[index] if index < len(positions_y) else 0.0,
+            },
+        ))
+
+    if len(saved) == 1:
+        path, name, size, spec = saved[0]
         job = Job(
             user_id=user.id,
             printer_id=printer.id,
-            filename=file.filename,
-            file_path=str(file_path),
-            file_size=total_size,
+            filename=name,
+            file_path=path,
+            file_size=size,
             status=JobStatus.PROCESSING,
             user_notes=notes,
             ams_slot=requested_slot,
         )
         db.add(job)
         await db.flush()
-        pending.append((job.id, str(file_path), file.filename, transform))
-        jobs.append(job)
+        await db.commit()
+        notify_new_jobs(user.name, [name], printer.name)
+        transform = (spec["scale"], spec["rotation_x"], spec["rotation_y"], spec["rotation_z"])
+        background_tasks.add_task(_slice_job_bg, job.id, path, name, transform)
+        return {"created": [job_dict(job, printer=printer)]}
+
+    # Multi-part plate: one job, files merged in the background.
+    plate_name = f"{Path(saved[0][1]).stem} 외 {len(saved) - 1}개.stl"
+    job = Job(
+        user_id=user.id,
+        printer_id=printer.id,
+        filename=plate_name,
+        file_path=saved[0][0],  # replaced with the merged STL by the bg task
+        file_size=sum(item[2] for item in saved),
+        status=JobStatus.PROCESSING,
+        user_notes=notes,
+        ams_slot=requested_slot,
+    )
+    db.add(job)
+    await db.flush()
     await db.commit()
-    notify_new_jobs(user.name, [item[2] for item in pending], printer.name)
-    for job_id, stl_path, original_name, transform in pending:
-        background_tasks.add_task(
-            _slice_job_bg, job_id, stl_path, original_name, transform
-        )
-    return {"created": [job_dict(job, printer=printer) for job in jobs]}
+    notify_new_jobs(user.name, [plate_name], printer.name)
+    background_tasks.add_task(
+        _slice_job_bg, job.id, "", plate_name, (1.0, 0.0, 0.0, 0.0),
+        [item[3] for item in saved],
+    )
+    return {"created": [job_dict(job, printer=printer)]}
 
 
 @router.get("/jobs")

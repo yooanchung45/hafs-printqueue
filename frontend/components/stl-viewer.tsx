@@ -287,3 +287,350 @@ export function StlViewer({ url, transform, className = "", onDimensions, onStat
     </div>
   );
 }
+
+// ── Multi-part bed editor ────────────────────────────────────────────────────
+
+export const BED_MM = 256;
+
+export interface PartTransform {
+  x: number;          // mm offset of the footprint centre from the bed centre
+  y: number;
+  scale: number;
+  rotationX: number;  // degrees
+  rotationY: number;
+  rotationZ: number;
+}
+
+export interface PartMetrics {
+  size: { x: number; y: number; z: number };  // transformed bounding-box dimensions, mm
+  triangles: number;
+}
+
+/** R = Rz·Ry·Rx applied to a column vector — matches backend merge_stls so the
+ * preview and the sliced plate agree even for multi-axis rotations. */
+function eulerFromDegrees(rx: number, ry: number, rz: number): THREE.Euler {
+  const m = new THREE.Matrix4().makeRotationZ(THREE.MathUtils.degToRad(rz));
+  m.multiply(new THREE.Matrix4().makeRotationY(THREE.MathUtils.degToRad(ry)));
+  m.multiply(new THREE.Matrix4().makeRotationX(THREE.MathUtils.degToRad(rx)));
+  return new THREE.Euler().setFromRotationMatrix(m);
+}
+
+interface PlateScene {
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  renderer: THREE.WebGLRenderer;
+  controls: OrbitControls;
+  bedGroup: THREE.Group;
+  meshes: (THREE.Mesh | null)[];
+  boxHelper: THREE.Box3Helper | null;
+  boxIndex: number | null;
+}
+
+export function StlPlateEditor({
+  parts,
+  selected,
+  invalid,
+  onSelect,
+  onMove,
+  onPartMetrics,
+  className = "",
+}: {
+  parts: { url: string; transform: PartTransform }[];
+  selected: number | null;
+  invalid: Set<number>;
+  onSelect: (index: number | null) => void;
+  onMove: (index: number, pos: { x: number; y: number }) => void;
+  onPartMetrics: (index: number, metrics: PartMetrics) => void;
+  className?: string;
+}) {
+  const mountRef = useRef<HTMLDivElement>(null);
+  const sceneRef = useRef<PlateScene | null>(null);
+  const partsRef = useRef(parts);
+  partsRef.current = parts;
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const invalidRef = useRef(invalid);
+  invalidRef.current = invalid;
+  const cbRef = useRef({ onSelect, onMove, onPartMetrics });
+  cbRef.current = { onSelect, onMove, onPartMetrics };
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  const urlsKey = parts.map((part) => part.url).join("|");
+
+  // Position/rotation/scale each mesh, drop it onto Z=0, report its footprint.
+  const applyTransforms = () => {
+    const s = sceneRef.current;
+    if (!s) return;
+    partsRef.current.forEach((part, index) => {
+      const mesh = s.meshes[index];
+      const box = mesh?.geometry.boundingBox;
+      if (!mesh || !box) return;
+      const t = part.transform;
+      mesh.scale.setScalar(t.scale);
+      mesh.rotation.copy(eulerFromDegrees(t.rotationX, t.rotationY, t.rotationZ));
+      mesh.position.set(0, 0, 0);
+      mesh.updateMatrix();
+      const world = box.clone().applyMatrix4(mesh.matrix);
+      const centre = world.getCenter(new THREE.Vector3());
+      const size = world.getSize(new THREE.Vector3());
+      mesh.position.set(t.x - centre.x, t.y - centre.y, -world.min.z);
+      mesh.updateMatrix();
+      cbRef.current.onPartMetrics(index, {
+        size: { x: size.x, y: size.y, z: size.z },
+        triangles: mesh.geometry.getAttribute("position").count / 3,
+      });
+    });
+  };
+
+  const updateHighlights = () => {
+    const s = sceneRef.current;
+    if (!s) return;
+    const sel = selectedRef.current;
+    const bad = invalidRef.current;
+    s.meshes.forEach((mesh, index) => {
+      if (!mesh) return;
+      const material = mesh.material as THREE.MeshPhongMaterial;
+      if (bad.has(index)) material.emissive.setHex(0x7f1d1d);
+      else if (index === sel) material.emissive.setHex(0x1e3a5f);
+      else material.emissive.setHex(0x000000);
+    });
+    if (s.boxIndex !== sel) {
+      if (s.boxHelper) {
+        s.scene.remove(s.boxHelper);
+        s.boxHelper.geometry.dispose();
+        s.boxHelper = null;
+      }
+      const target = sel != null ? s.meshes[sel] : null;
+      if (target) {
+        s.boxHelper = new THREE.Box3Helper(
+          new THREE.Box3().setFromObject(target),
+          new THREE.Color(0x3b82f6),
+        );
+        s.scene.add(s.boxHelper);
+      }
+      s.boxIndex = sel;
+    }
+  };
+
+  // Scene + meshes: rebuilt only when the SET of parts changes (add / remove).
+  useEffect(() => {
+    const mount = mountRef.current;
+    if (!mount) return;
+    setStatus("loading");
+
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 20000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    mount.appendChild(renderer.domElement);
+
+    const styles = getComputedStyle(document.documentElement);
+    const tokenColor = (name: string) => new THREE.Color(styles.getPropertyValue(name).trim());
+    const modelColor = tokenColor("--color-model");
+    const fillColor = tokenColor("--color-model-fill");
+    const gridColor = tokenColor("--color-model-grid");
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x404050, 2.0));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+    keyLight.position.set(3, 5, 4);
+    scene.add(keyLight);
+    const fillLight = new THREE.DirectionalLight(0xdfe6ff, 0.6);
+    fillLight.position.set(-4, -2, -3);
+    scene.add(fillLight);
+
+    // Everything lives in a group rotated so its local XY is the bed plane and
+    // local +Z is up — i.e. slicer coordinates. Part positions and the merge
+    // maths on the server are then the same numbers.
+    const bedGroup = new THREE.Group();
+    bedGroup.rotation.x = -Math.PI / 2;
+    scene.add(bedGroup);
+    const grid = new THREE.GridHelper(BED_MM, 16, fillColor, gridColor);
+    grid.rotation.x = Math.PI / 2; // lay it in the group's local XY plane
+    bedGroup.add(grid);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.zoomToCursor = true;
+    camera.position.set(BED_MM * 0.9, BED_MM * 1.0, BED_MM * 1.3);
+    controls.target.set(0, 0, 0);
+    controls.update();
+
+    const state: PlateScene = {
+      scene, camera, renderer, controls, bedGroup, meshes: [], boxHelper: null, boxIndex: null,
+    };
+    sceneRef.current = state;
+
+    let disposed = false;
+    const currentParts = partsRef.current;
+    state.meshes = currentParts.map(() => null);
+    let loaded = 0;
+
+    const placeMesh = (index: number, geometry: THREE.BufferGeometry) => {
+      if (disposed) return;
+      const mesh = new THREE.Mesh(
+        geometry,
+        new THREE.MeshPhongMaterial({
+          color: modelColor,
+          specular: 0x2b2b2b,
+          shininess: 40,
+          side: THREE.DoubleSide,
+        }),
+      );
+      mesh.matrixAutoUpdate = false;
+      state.meshes[index] = mesh;
+      bedGroup.add(mesh);
+      loaded += 1;
+      if (loaded === currentParts.length) {
+        applyTransforms();
+        updateHighlights();
+        setStatus("ready");
+      }
+    };
+
+    currentParts.forEach((part, index) => {
+      const cached = geometryCache.get(part.url);
+      if (cached) {
+        placeMesh(index, cached);
+        return;
+      }
+      new STLLoader().load(
+        part.url,
+        (geometry) => {
+          if (!hasUsableNormals(geometry)) geometry.computeVertexNormals();
+          geometry.computeBoundingBox();
+          geometry.center();
+          cacheGeometry(part.url, geometry);
+          placeMesh(index, geometry);
+        },
+        undefined,
+        (error) => {
+          if (!disposed) {
+            console.warn("STL 미리보기를 불러오지 못했습니다", error);
+            setStatus("error");
+          }
+        },
+      );
+    });
+
+    // ── Pointer: click to select, drag a selected part across the bed ────────
+    const raycaster = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const hitPoint = new THREE.Vector3();
+    let drag: { index: number; offsetX: number; offsetY: number } | null = null;
+    let downX = 0;
+    let downY = 0;
+
+    const toNdc = (event: PointerEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      ndc.set(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+    };
+    const bedPointFromPointer = (event: PointerEvent): THREE.Vector3 | null => {
+      toNdc(event);
+      raycaster.setFromCamera(ndc, camera);
+      if (!raycaster.ray.intersectPlane(groundPlane, hitPoint)) return null;
+      return bedGroup.worldToLocal(hitPoint.clone());
+    };
+
+    const onPointerDown = (event: PointerEvent) => {
+      downX = event.clientX;
+      downY = event.clientY;
+      toNdc(event);
+      raycaster.setFromCamera(ndc, camera);
+      const meshes = state.meshes.filter(Boolean) as THREE.Mesh[];
+      const hit = raycaster.intersectObjects(meshes, false)[0];
+      if (!hit) return;
+      const index = state.meshes.indexOf(hit.object as THREE.Mesh);
+      cbRef.current.onSelect(index);
+      const local = bedPointFromPointer(event);
+      const t = partsRef.current[index]?.transform;
+      if (local && t) {
+        drag = { index, offsetX: local.x - t.x, offsetY: local.y - t.y };
+        controls.enabled = false;
+        renderer.domElement.setPointerCapture(event.pointerId);
+      }
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      if (!drag) return;
+      const local = bedPointFromPointer(event);
+      if (!local) return;
+      const half = BED_MM / 2;
+      cbRef.current.onMove(drag.index, {
+        x: THREE.MathUtils.clamp(local.x - drag.offsetX, -half, half),
+        y: THREE.MathUtils.clamp(local.y - drag.offsetY, -half, half),
+      });
+    };
+    const onPointerUp = (event: PointerEvent) => {
+      if (drag) {
+        drag = null;
+        controls.enabled = true;
+        try { renderer.domElement.releasePointerCapture(event.pointerId); } catch { /* ignore */ }
+        return;
+      }
+      if (Math.hypot(event.clientX - downX, event.clientY - downY) < 4) cbRef.current.onSelect(null);
+    };
+    renderer.domElement.addEventListener("pointerdown", onPointerDown);
+    renderer.domElement.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+
+    const resize = () => {
+      const width = Math.max(mount.clientWidth, 1);
+      const height = Math.max(mount.clientHeight, 1);
+      renderer.setSize(width, height, false);
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(mount);
+    resize();
+
+    let frame = 0;
+    const render = () => {
+      frame = requestAnimationFrame(render);
+      controls.update();
+      const helper = state.boxHelper;
+      if (helper && selectedRef.current != null) {
+        const mesh = state.meshes[selectedRef.current];
+        if (mesh) helper.box.setFromObject(mesh);
+      }
+      renderer.render(scene, camera);
+    };
+    render();
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      renderer.domElement.removeEventListener("pointerdown", onPointerDown);
+      renderer.domElement.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      controls.dispose();
+      state.meshes.forEach((mesh) => {
+        if (mesh) (mesh.material as THREE.Material).dispose(); // geometry owned by the cache
+      });
+      if (state.boxHelper) state.boxHelper.geometry.dispose();
+      renderer.dispose();
+      renderer.domElement.remove();
+      sceneRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlsKey]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { applyTransforms(); }, [parts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { updateHighlights(); }, [selected, invalid]);
+
+  return (
+    <div className={`stl-viewer ${className}`} role="img" aria-label="3D 배치 편집기">
+      <div ref={mountRef} className="stl-viewer-mount" />
+      {status === "loading" ? <div className="stl-viewer-overlay">불러오는 중…</div> : null}
+      {status === "error" ? <div className="stl-viewer-overlay is-error">모델을 불러오지 못했습니다</div> : null}
+    </div>
+  );
+}

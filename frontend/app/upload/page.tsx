@@ -1,11 +1,18 @@
 "use client";
 
-import { Box, Check, CheckCircle2, FileArchive, FileUp, RotateCcw, RotateCw, X } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { Box, Check, CheckCircle2, FileArchive, FileUp, LayoutGrid, RotateCcw, RotateCw, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
 
-import { StlViewer, type ModelTransform } from "@/components/stl-viewer";
+import {
+  BED_MM,
+  StlPlateEditor,
+  StlViewer,
+  type ModelTransform,
+  type PartMetrics,
+  type PartTransform,
+} from "@/components/stl-viewer";
 import { api, formatBytes } from "@/lib/api";
 import type { Printer } from "@/lib/types";
 
@@ -264,6 +271,396 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
   );
 }
 
+// ── Multi-part bed editor (2+ STL files) ─────────────────────────────────────
+
+type PartState = { file: File; name: string; transform: PartTransform };
+const flatPart: Omit<PartTransform, "x" | "y"> = { scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 };
+const HALF = BED_MM / 2;
+const NUDGE = 5;
+const NUDGE_FINE = 1;
+
+/** Shelf-pack footprints (sorted by area) into rows, then centre the block on
+ * the bed. Returns each part's offset-from-centre position, original order. */
+function packLayout(sizes: { x: number; y: number }[], gap = 5): { x: number; y: number }[] {
+  const order = sizes.map((_, i) => i).sort((a, b) => sizes[b].x * sizes[b].y - sizes[a].x * sizes[a].y);
+  const placed: { cx: number; cy: number }[] = new Array(sizes.length);
+  let cursorX = 0;
+  let cursorY = 0;
+  let rowHeight = 0;
+  let blockWidth = 0;
+  for (const i of order) {
+    const { x: w, y: h } = sizes[i];
+    if (cursorX > 0 && cursorX + w > BED_MM) {
+      cursorY += rowHeight + gap;
+      cursorX = 0;
+      rowHeight = 0;
+    }
+    placed[i] = { cx: cursorX + w / 2, cy: cursorY + h / 2 };
+    cursorX += w + gap;
+    rowHeight = Math.max(rowHeight, h);
+    blockWidth = Math.max(blockWidth, cursorX - gap);
+  }
+  const offX = blockWidth / 2;
+  const offY = (cursorY + rowHeight) / 2;
+  return placed.map((p) => ({ x: p.cx - offX, y: p.cy - offY }));
+}
+
+function rectsOverlap(
+  a: { x: number; y: number; sx: number; sy: number },
+  b: { x: number; y: number; sx: number; sy: number },
+  eps = 0.5,
+) {
+  return (
+    Math.abs(a.x - b.x) < (a.sx + b.sx) / 2 - eps &&
+    Math.abs(a.y - b.y) < (a.sy + b.sy) / 2 - eps
+  );
+}
+
+function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void }) {
+  const router = useRouter();
+  const [parts, setParts] = useState<PartState[]>(() =>
+    data.files.map((f) => ({ file: f.file, name: f.name, transform: { x: 0, y: 0, ...flatPart } })),
+  );
+  const [metrics, setMetrics] = useState<Record<number, PartMetrics>>({});
+  const [selected, setSelected] = useState<number | null>(null);
+  const [notes, setNotes] = useState("");
+  const [printerId, setPrinterId] = useState("");
+  const [slotIndex, setSlotIndex] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [objectUrls] = useState(() => data.files.map((f) => URL.createObjectURL(f.file)));
+  useEffect(() => () => objectUrls.forEach((url) => URL.revokeObjectURL(url)), [objectUrls]);
+  const didArrange = useRef(false);
+
+  const editorParts = useMemo(
+    () => parts.map((part, i) => ({ url: objectUrls[i], transform: part.transform })),
+    [parts, objectUrls],
+  );
+
+  const footprints = useMemo(
+    () =>
+      parts.map((part, i) => {
+        const m = metrics[i];
+        return m ? { x: part.transform.x, y: part.transform.y, sx: m.size.x, sy: m.size.y, sz: m.size.z } : null;
+      }),
+    [parts, metrics],
+  );
+
+  const invalid = useMemo(() => {
+    const bad = new Set<number>();
+    footprints.forEach((f, i) => {
+      if (!f) return;
+      if (f.x - f.sx / 2 < -HALF || f.x + f.sx / 2 > HALF) bad.add(i);
+      if (f.y - f.sy / 2 < -HALF || f.y + f.sy / 2 > HALF) bad.add(i);
+      if (f.sz > BED_MM) bad.add(i);
+      for (let j = i + 1; j < footprints.length; j += 1) {
+        const g = footprints[j];
+        if (g && rectsOverlap(f, g)) {
+          bad.add(i);
+          bad.add(j);
+        }
+      }
+    });
+    return bad;
+  }, [footprints]);
+
+  const metricsComplete = parts.every((_, i) => metrics[i] != null);
+  const canSubmit = parts.length >= 1 && metricsComplete && invalid.size === 0;
+
+  const patchTransform = (i: number, patch: Partial<PartTransform>) =>
+    setParts((list) => list.map((p, idx) => (idx === i ? { ...p, transform: { ...p.transform, ...patch } } : p)));
+
+  const onPartMetrics = useCallback((i: number, m: PartMetrics) => {
+    setMetrics((prev) => {
+      const cur = prev[i];
+      if (
+        cur &&
+        Math.abs(cur.size.x - m.size.x) < 1e-3 &&
+        Math.abs(cur.size.y - m.size.y) < 1e-3 &&
+        Math.abs(cur.size.z - m.size.z) < 1e-3 &&
+        cur.triangles === m.triangles
+      ) {
+        return prev;
+      }
+      return { ...prev, [i]: m };
+    });
+  }, []);
+
+  const autoArrange = useCallback(() => {
+    setParts((list) => {
+      if (!list.every((_, i) => metrics[i] != null)) return list;
+      const pos = packLayout(list.map((_, i) => ({ x: metrics[i].size.x, y: metrics[i].size.y })));
+      return list.map((p, i) => ({ ...p, transform: { ...p.transform, x: pos[i].x, y: pos[i].y } }));
+    });
+  }, [metrics]);
+
+  // One automatic spread once every part has reported its size.
+  useEffect(() => {
+    if (!didArrange.current && metricsComplete && parts.length > 0) {
+      didArrange.current = true;
+      autoArrange();
+    }
+  }, [metricsComplete, parts.length, autoArrange]);
+
+  const removePart = useCallback((i: number) => {
+    setParts((list) => list.filter((_, idx) => idx !== i));
+    setMetrics((prev) => {
+      const next: Record<number, PartMetrics> = {};
+      Object.entries(prev).forEach(([k, v]) => {
+        const idx = Number(k);
+        if (idx < i) next[idx] = v;
+        else if (idx > i) next[idx - 1] = v;
+      });
+      return next;
+    });
+    setSelected((s) => (s == null ? s : s === i ? null : s > i ? s - 1 : s));
+  }, []);
+
+  useEffect(() => {
+    if (parts.length === 0) onBack();
+  }, [parts.length, onBack]);
+
+  // Delete / Backspace removes, arrows nudge the selected part (5 mm, Shift = 1).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (selected == null) return;
+      const tag = (event.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        removePart(selected);
+        return;
+      }
+      const step = event.shiftKey ? NUDGE_FINE : NUDGE;
+      let dx = 0;
+      let dy = 0;
+      if (event.key === "ArrowLeft") dx = -step;
+      else if (event.key === "ArrowRight") dx = step;
+      else if (event.key === "ArrowUp") dy = step;
+      else if (event.key === "ArrowDown") dy = -step;
+      else return;
+      event.preventDefault();
+      const t = parts[selected].transform;
+      patchTransform(selected, {
+        x: Math.max(-HALF, Math.min(HALF, t.x + dx)),
+        y: Math.max(-HALF, Math.min(HALF, t.y + dy)),
+      });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, parts, removePart]);
+
+  const confirm = async () => {
+    setBusy(true);
+    setError("");
+    const form = new FormData();
+    parts.forEach((part) => {
+      form.append("files", part.file);
+      form.append("scales", String(part.transform.scale));
+      form.append("rotations_x", String(part.transform.rotationX));
+      form.append("rotations_y", String(part.transform.rotationY));
+      form.append("rotations_z", String(part.transform.rotationZ));
+      form.append("positions_x", String(part.transform.x));
+      form.append("positions_y", String(part.transform.y));
+    });
+    form.append("user_notes", notes);
+    form.append("printer_id", printerId);
+    form.append("ams_slot", slotIndex);
+    try {
+      await api("/api/upload/stl-confirm", { method: "POST", body: form });
+      posthog.capture("print_request_submitted", {
+        submission_type: "stl",
+        file_count: parts.length,
+        part_count: parts.length,
+        printer_selected: Boolean(printerId),
+        filament_preference_selected: Boolean(slotIndex),
+      });
+      setSubmitted(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "신청하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sel = selected != null ? parts[selected] : null;
+  const selMetrics = selected != null ? metrics[selected] : undefined;
+
+  return (
+    <div className="page">
+      <header className="page-header">
+        <div>
+          <h1>베드 배치</h1>
+          <p>부품을 드래그해 서로 닿지 않게 배치하세요. 방향키로 미세 이동, Delete로 삭제.</p>
+        </div>
+        <button className="button button-secondary" onClick={onBack}>파일 다시 선택</button>
+      </header>
+      {error ? <div className="notice notice-danger error-banner">{error}</div> : null}
+      <div className="workbench-grid">
+        <section className="card workbench-viewer">
+          <StlPlateEditor
+            parts={editorParts}
+            selected={selected}
+            invalid={invalid}
+            onSelect={setSelected}
+            onMove={(i, pos) => patchTransform(i, pos)}
+            onPartMetrics={onPartMetrics}
+          />
+          <p className="viewer-hint">
+            {BED_MM} × {BED_MM}mm 베드 · 부품 클릭 후 드래그 · 방향키 {NUDGE}mm (Shift {NUDGE_FINE}mm) · Delete 삭제
+          </p>
+          <div className="part-list">
+            {parts.map((part, index) => (
+              <div
+                key={objectUrls[index]}
+                className={`part-row${selected === index ? " is-selected" : ""}${invalid.has(index) ? " is-invalid" : ""}`}
+                onClick={() => setSelected(index)}
+              >
+                <span className="truncate">{index + 1}. {part.name}</span>
+                {metrics[index] ? (
+                  <small>{metrics[index].size.x.toFixed(0)}×{metrics[index].size.y.toFixed(0)}×{metrics[index].size.z.toFixed(0)}</small>
+                ) : null}
+                <button
+                  className="icon-button"
+                  onClick={(event) => { event.stopPropagation(); removePart(index); }}
+                  aria-label={`${part.name} 삭제`}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+        <aside className="card transform-panel">
+          <div className="card-header">
+            <h2 className="truncate">{sel ? sel.name : `부품 ${parts.length}개`}</h2>
+            <button className="button button-secondary button-small" onClick={autoArrange} disabled={!metricsComplete}>
+              <LayoutGrid size={14} /> 자동 배치
+            </button>
+          </div>
+          <div className="card-body">
+            {invalid.size > 0 ? (
+              <div className="notice notice-danger">부품이 겹치거나 베드를 벗어났습니다. 배치를 조정하세요.</div>
+            ) : null}
+            {sel && selected != null ? (
+              <>
+                {selMetrics ? (
+                  <div className="dimension-row">
+                    {(["x", "y", "z"] as const).map((axis) => (
+                      <label key={axis}>
+                        <span>{axis.toUpperCase()}</span>
+                        <input type="text" readOnly value={selMetrics.size[axis].toFixed(1)} />
+                        <small>mm</small>
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="dimension-row">
+                  {(["x", "y"] as const).map((axis) => (
+                    <label key={axis}>
+                      <span>{axis === "x" ? "←→" : "↑↓"}</span>
+                      <input
+                        type="number"
+                        step="1"
+                        value={sel.transform[axis].toFixed(0)}
+                        onChange={(event) =>
+                          patchTransform(selected, {
+                            [axis]: Math.max(-HALF, Math.min(HALF, Number(event.target.value) || 0)),
+                          })
+                        }
+                      />
+                      <small>mm</small>
+                    </label>
+                  ))}
+                </div>
+                <div className="field transform-field">
+                  <label htmlFor="part-scale">크기 · {Math.round(sel.transform.scale * 100)}%</label>
+                  <input
+                    id="part-scale"
+                    type="range"
+                    min="1"
+                    max="400"
+                    value={Math.round(sel.transform.scale * 100)}
+                    onChange={(event) => patchTransform(selected, { scale: Number(event.target.value) / 100 })}
+                  />
+                </div>
+                <div className="preset-row">
+                  {[25, 50, 75, 100].map((percent) => (
+                    <button
+                      key={percent}
+                      className="button button-secondary button-small"
+                      onClick={() => patchTransform(selected, { scale: percent / 100 })}
+                    >
+                      {percent}%
+                    </button>
+                  ))}
+                </div>
+                <div className="rotation-grid">
+                  {(["rotationX", "rotationY", "rotationZ"] as const).map((axis) => (
+                    <div key={axis}>
+                      <span>{axis.slice(-1)}</span>
+                      <button
+                        className="button button-secondary button-small"
+                        aria-label={`${axis.slice(-1)}축 반시계 90도`}
+                        title="−90°"
+                        onClick={() => patchTransform(selected, { [axis]: sel.transform[axis] - 90 })}
+                      >
+                        <RotateCcw size={15} />
+                      </button>
+                      <strong>{sel.transform[axis]}°</strong>
+                      <button
+                        className="button button-secondary button-small"
+                        aria-label={`${axis.slice(-1)}축 시계 90도`}
+                        title="+90°"
+                        onClick={() => patchTransform(selected, { [axis]: sel.transform[axis] + 90 })}
+                      >
+                        <RotateCw size={15} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button className="button button-secondary button-full button-small" onClick={() => removePart(selected)}>
+                  <Trash2 size={14} /> 이 부품 삭제
+                </button>
+              </>
+            ) : (
+              <p className="filament-empty">부품을 클릭해 선택하세요</p>
+            )}
+            <PrinterFilamentPicker
+              printers={data.printers}
+              printerId={printerId}
+              onPrinterChange={setPrinterId}
+              slotIndex={slotIndex}
+              onSlotChange={setSlotIndex}
+            />
+            <div className="field">
+              <label htmlFor="plate-notes">관리자 메모</label>
+              <textarea
+                id="plate-notes"
+                className="textarea"
+                rows={3}
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="출력 시 참고할 내용 (선택)"
+              />
+            </div>
+            <button
+              className={`button button-primary button-full ${busy ? "button-loading" : ""}`}
+              disabled={busy || !canSubmit}
+              onClick={confirm}
+            >
+              <Check size={16} /> {parts.length}개 부품 한 판 출력 신청
+            </button>
+          </div>
+        </aside>
+      </div>
+      {submitted ? <SubmissionSuccessDialog onContinue={() => router.push("/jobs?submitted=1")} /> : null}
+    </div>
+  );
+}
+
 export default function UploadPage() {
   const router = useRouter();
   const [stlFiles, setStlFiles] = useState<File[]>([]);
@@ -305,7 +702,13 @@ export default function UploadPage() {
       setSubmitted(true);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "업로드하지 못했습니다."); } finally { setBusy(false); }
   };
-  if (preview) return <StlWorkbench data={preview} onBack={() => setPreview(null)} />;
+  if (preview) {
+    return preview.files.length >= 2 ? (
+      <PlateWorkbench data={preview} onBack={() => setPreview(null)} />
+    ) : (
+      <StlWorkbench data={preview} onBack={() => setPreview(null)} />
+    );
+  }
   return (
     <div className="page">
       <header className="page-header"><div><h1>출력 신청</h1><p>STL을 바로 슬라이싱하거나 Bambu Studio에서 준비한 파일을 제출할 수 있습니다.</p></div></header>
