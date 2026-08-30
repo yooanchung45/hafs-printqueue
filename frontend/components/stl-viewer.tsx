@@ -14,12 +14,6 @@ export interface ModelTransform {
 
 const DEFAULT_TRANSFORM: ModelTransform = { scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 };
 
-// Beyond this triangle count the crease-edge overlay (THREE.EdgesGeometry) costs
-// more than it's worth — it walks every triangle and every shared edge on the
-// main thread, which is what made large models crawl. The matcap alone still
-// conveys form, so past the limit we skip the overlay.
-const EDGE_TRIANGLE_LIMIT = 150_000;
-
 // Parsed, normal-resolved, bed-centred geometry keyed by source URL. STL files
 // are immutable and the viewer never mutates the geometry (scale/rotation live
 // on the mesh), so entries are shared across mounts and file-tab switches
@@ -81,46 +75,6 @@ function makeAxisLabel(text: string, color: string, size: number): THREE.Sprite 
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false, transparent: true }));
   sprite.scale.set(size, size, 1);
   return sprite;
-}
-
-/** A procedural matcap: a sphere-lit gradient painted in the model colour —
- * bright key highlight upper-left, dark falloff, a soft rim lower-right. Used
- * instead of scene lights because a matte part lit by directional lights has
- * too little luminance range to read as a solid against a dark viewport, so
- * every lighting rig we tried left it looking like a flat silhouette. A
- * matcap bakes in a strong fixed gradient that always shows form. */
-function makeMatcap(base: THREE.Color): THREE.CanvasTexture {
-  const size = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-  const srgb = base.clone().convertLinearToSRGB();
-  const css = (c: THREE.Color) => `#${c.getHexString()}`;
-  const light = srgb.clone().lerp(new THREE.Color(0xffffff), 0.72);
-  const dark = srgb.clone().multiplyScalar(0.26);
-  if (ctx) {
-    ctx.fillStyle = css(dark);
-    ctx.fillRect(0, 0, size, size);
-    const key = ctx.createRadialGradient(size * 0.36, size * 0.33, size * 0.04, size * 0.5, size * 0.5, size * 0.6);
-    key.addColorStop(0, css(light));
-    key.addColorStop(0.45, css(srgb));
-    key.addColorStop(1, css(dark));
-    ctx.fillStyle = key;
-    ctx.beginPath();
-    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
-    ctx.fill();
-    const rim = ctx.createRadialGradient(size * 0.72, size * 0.77, size * 0.02, size * 0.72, size * 0.77, size * 0.3);
-    rim.addColorStop(0, "rgba(255,255,255,0.4)");
-    rim.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = rim;
-    ctx.beginPath();
-    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
 }
 
 function buildAxisIndicators(length: number): THREE.Group {
@@ -193,16 +147,20 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     const modelColor = tokenColor("--color-model");
     const fillColor = tokenColor("--color-model-fill");
     const gridColor = tokenColor("--color-model-grid");
-    const rootTheme = document.documentElement.getAttribute("data-theme");
-    const darkTheme = rootTheme === "dark"
-      || (rootTheme !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-    // Drawn over the mesh so the actual outline and creases are always
-    // visible, whatever the matcap does — a light line in dark mode, a dark
-    // line in light mode.
-    const edgeColor = new THREE.Color(darkTheme ? "#e6eefb" : "#1e293b");
 
-    // No scene lights: the model uses an unlit matcap material (see
-    // makeMatcap) for guaranteed, background-independent shading.
+    // Plain white lights + a Phong material with a real specular term — the
+    // original viewer's rig. Deliberately not driven by a theme token: the
+    // dark-mode "lamp colour" token is a near-black slate, which is what
+    // flattened the model to a shadowed silhouette and triggered the matcap
+    // workaround. White lights read correctly in both themes.
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x404050, 2.0));
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+    keyLight.position.set(3, 5, 4);
+    scene.add(keyLight);
+    const fillLight = new THREE.DirectionalLight(0xdfe6ff, 0.6);
+    fillLight.position.set(-4, -2, -3);
+    scene.add(fillLight);
+
     const grid = new THREE.GridHelper(256, 16, fillColor, gridColor);
     scene.add(grid);
     let axisIndicators: THREE.Group | null = null;
@@ -220,16 +178,13 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
       if (originalSize) onDimensionsRef.current?.({ x: originalSize.x, y: originalSize.y, z: originalSize.z });
       const model = new THREE.Mesh(
         geometry,
-        new THREE.MeshMatcapMaterial({ matcap: makeMatcap(modelColor) }),
+        new THREE.MeshPhongMaterial({
+          color: modelColor,
+          specular: 0x2b2b2b,
+          shininess: 40,
+          side: THREE.DoubleSide,
+        }),
       );
-      const triangleCount = geometry.getAttribute("position").count / 3;
-      if (triangleCount <= EDGE_TRIANGLE_LIMIT) {
-        const edges = new THREE.LineSegments(
-          new THREE.EdgesGeometry(geometry, 24),
-          new THREE.LineBasicMaterial({ color: edgeColor, transparent: true, opacity: 0.55 }),
-        );
-        model.add(edges);
-      }
       applyTransform(model, transformRef.current);
       scene.add(model);
       modelRef.current = model;
@@ -292,15 +247,7 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
       const model = modelRef.current;
       if (model) {
         // geometry is owned by geometryCache — don't dispose it here
-        const material = model.material as THREE.MeshMatcapMaterial;
-        material.matcap?.dispose();
-        material.dispose();
-        model.children.forEach((child) => {
-          if (child instanceof THREE.LineSegments) {
-            child.geometry.dispose();
-            (child.material as THREE.Material).dispose();
-          }
-        });
+        (model.material as THREE.Material).dispose();
       }
       modelRef.current = null;
       if (axisIndicators) disposeGroup(axisIndicators);
