@@ -1,7 +1,6 @@
 """Student-facing print job API routes."""
 import asyncio
 import logging
-import re
 import uuid
 import zipfile
 from pathlib import Path
@@ -180,56 +179,6 @@ async def upload_submit(
     return {"created": [job_dict(job, printer=printer) for job in jobs]}
 
 
-@router.post("/upload/stl-preview")
-async def stl_preview(
-    files: List[UploadFile] = File(...),
-    _: User = Depends(require_user),
-    db: AsyncSession = Depends(get_db),
-):
-    if not files or all(not file.filename for file in files):
-        raise HTTPException(422, "파일을 선택해 주세요")
-    upload_dir = Path(settings.UPLOAD_DIR)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    saved = []
-    for file in files:
-        if not file.filename or Path(file.filename).suffix.lower() not in ALLOWED_STL:
-            continue
-        temp_id = uuid.uuid4().hex + ".stl"
-        file_path = upload_dir / temp_id
-        total_size = 0
-        with open(file_path, "wb") as destination:
-            while chunk := await file.read(1024 * 1024):
-                total_size += len(chunk)
-                if total_size > MAX_FILE_SIZE:
-                    file_path.unlink(missing_ok=True)
-                    raise HTTPException(413, "파일은 100MB를 넘을 수 없습니다")
-                destination.write(chunk)
-        if file_path.exists():
-            saved.append(
-                {
-                    "temp_id": temp_id,
-                    "original_name": file.filename,
-                    "url": f"/api/upload/stl-serve/{temp_id}",
-                }
-            )
-    if not saved:
-        raise HTTPException(422, "유효한 STL 파일이 없습니다")
-    return {
-        "files": saved,
-        "printers": await _printers_payload(db),
-    }
-
-
-@router.get("/upload/stl-serve/{temp_id}")
-async def stl_serve(temp_id: str, _: User = Depends(require_user)):
-    if not re.fullmatch(r"[a-f0-9]{32}\.stl", temp_id):
-        raise HTTPException(400, "유효하지 않은 파일 ID입니다")
-    file_path = Path(settings.UPLOAD_DIR) / temp_id
-    if not file_path.exists():
-        raise HTTPException(404, "파일을 찾을 수 없습니다")
-    return FileResponse(str(file_path), media_type="application/octet-stream")
-
-
 async def _slice_job_bg(
     job_id: int,
     stl_path: str,
@@ -279,8 +228,7 @@ async def _slice_job_bg(
 @router.post("/upload/stl-confirm")
 async def stl_confirm(
     background_tasks: BackgroundTasks,
-    file_ids: List[str] = Form(...),
-    filenames: List[str] = Form(...),
+    files: List[UploadFile] = File(...),
     user_notes: str = Form(""),
     printer_id: str = Form(""),
     ams_slot: str = Form(""),
@@ -291,20 +239,39 @@ async def stl_confirm(
     user: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # The STL preview + scale/rotation UI is fully client-side now, so the file
+    # only ever reaches the server here, on submit — one upload, at the point
+    # the student expects to wait. Transform + slicing run in the background.
+    files = [file for file in files if file.filename]
+    if not files:
+        raise HTTPException(422, "파일을 선택해 주세요")
+    if any(Path(file.filename).suffix.lower() not in ALLOWED_STL for file in files):
+        raise HTTPException(422, "STL 파일만 업로드할 수 있습니다")
+
     printer = await resolve_printer(db, printer_id)
     requested_slot = _parse_ams_slot(ams_slot)
     notes = user_notes.strip() or None
+    upload_dir = Path(settings.UPLOAD_DIR)
+    upload_dir.mkdir(parents=True, exist_ok=True)
     pending = []
     jobs = []
-    for index, (temp_id, original_name) in enumerate(zip(file_ids, filenames)):
-        if not re.fullmatch(r"[a-f0-9]{32}\.stl", temp_id):
-            continue
-        file_path = Path(settings.UPLOAD_DIR) / temp_id
-        if not file_path.exists():
-            continue
-        # 변환(스케일/회전)과 슬라이싱은 둘 다 백그라운드에서 돌린다. 큰 STL의
-        # 변환은 수십 초가 걸릴 수 있어서, 여기서 처리하면 업로드 요청이
-        # 리버스 프록시 타임아웃에 걸려 "요청을 처리하지 못했습니다"가 뜬다.
+    for index, file in enumerate(files):
+        file_path = upload_dir / f"{uuid.uuid4().hex}.stl"
+        total_size = 0
+        try:
+            with open(file_path, "wb") as destination:
+                while chunk := await file.read(1024 * 1024):
+                    total_size += len(chunk)
+                    if total_size > MAX_FILE_SIZE:
+                        file_path.unlink(missing_ok=True)
+                        raise HTTPException(413, "파일은 100MB를 넘을 수 없습니다")
+                    destination.write(chunk)
+        except OSError as exc:
+            # Full disk / unwritable upload dir would otherwise bubble up as a
+            # bare 500 and the client only sees the generic error banner.
+            file_path.unlink(missing_ok=True)
+            logger.error("STL 저장 실패 file=%s: %s", file.filename, exc)
+            raise HTTPException(507, "서버에 파일을 저장하지 못했습니다. 관리자에게 문의해 주세요")
         transform = (
             scales[index] if index < len(scales) else 1.0,
             rotations_x[index] if index < len(rotations_x) else 0.0,
@@ -314,19 +281,17 @@ async def stl_confirm(
         job = Job(
             user_id=user.id,
             printer_id=printer.id,
-            filename=original_name,
+            filename=file.filename,
             file_path=str(file_path),
-            file_size=file_path.stat().st_size,
+            file_size=total_size,
             status=JobStatus.PROCESSING,
             user_notes=notes,
             ams_slot=requested_slot,
         )
         db.add(job)
         await db.flush()
-        pending.append((job.id, str(file_path), original_name, transform))
+        pending.append((job.id, str(file_path), file.filename, transform))
         jobs.append(job)
-    if not jobs:
-        raise HTTPException(422, "처리할 STL 파일이 없습니다")
     await db.commit()
     notify_new_jobs(user.name, [item[2] for item in pending], printer.name)
     for job_id, stl_path, original_name, transform in pending:

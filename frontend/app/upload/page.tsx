@@ -9,10 +9,11 @@ import { StlViewer, type ModelTransform } from "@/components/stl-viewer";
 import { api, formatBytes } from "@/lib/api";
 import type { Printer } from "@/lib/types";
 
-type TempFile = { temp_id: string; original_name: string; url: string };
-type PreviewData = { files: TempFile[]; printers: Printer[] };
+type PreviewFile = { file: File; name: string };
+type PreviewData = { files: PreviewFile[]; printers: Printer[] };
 type Dimensions = { x: number; y: number; z: number };
 const initialTransform: ModelTransform = { scale: 1, rotationX: 0, rotationY: 0, rotationZ: 0 };
+const MAX_FILE_BYTES = 100 * 1024 * 1024;
 
 // Which printer the backend's pick_best_printer would land on for a blank
 // (자동 배정) choice: the healthy printer with the shortest queue, mirroring
@@ -175,6 +176,10 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  // The picked files are previewed straight from the browser — no upload until
+  // 출력 신청 below. One blob URL per file, revoked when the workbench closes.
+  const [objectUrls] = useState(() => data.files.map((entry) => URL.createObjectURL(entry.file)));
+  useEffect(() => () => objectUrls.forEach((url) => URL.revokeObjectURL(url)), [objectUrls]);
   const current = transforms[selected];
   const size = dimensions[selected];
   const scaled = size ? { x: size.x * current.scale, y: size.y * current.scale, z: size.z * current.scale } : null;
@@ -187,8 +192,8 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
   const confirm = async () => {
     setBusy(true); setError("");
     const form = new FormData();
-    data.files.forEach((file, index) => {
-      form.append("file_ids", file.temp_id); form.append("filenames", file.original_name);
+    data.files.forEach((entry, index) => {
+      form.append("files", entry.file);
       form.append("scales", String(transforms[index].scale));
       form.append("rotations_x", String(transforms[index].rotationX));
       form.append("rotations_y", String(transforms[index].rotationY));
@@ -214,12 +219,12 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
       {error ? <div className="notice notice-danger error-banner">{error}</div> : null}
       <div className="workbench-grid">
         <section className="card workbench-viewer">
-          <StlViewer url={data.files[selected].url} transform={current} onDimensions={useCallback((next: Dimensions) => setDimensions((values) => ({ ...values, [selected]: next })), [selected])} />
+          <StlViewer url={objectUrls[selected]} transform={current} onDimensions={useCallback((next: Dimensions) => setDimensions((values) => ({ ...values, [selected]: next })), [selected])} />
           <p className="viewer-hint">256 × 256mm 베드 · 드래그로 회전 · 스크롤로 확대</p>
-          <div className="model-tabs">{data.files.map((file, index) => <button key={file.temp_id} className={selected === index ? "model-tab model-tab-active" : "model-tab"} onClick={() => setSelected(index)}>{index + 1}. {file.original_name}</button>)}</div>
+          <div className="model-tabs">{data.files.map((file, index) => <button key={objectUrls[index]} className={selected === index ? "model-tab model-tab-active" : "model-tab"} onClick={() => setSelected(index)}>{index + 1}. {file.name}</button>)}</div>
         </section>
         <aside className="card transform-panel">
-          <div className="card-header"><h2 className="truncate">{data.files[selected].original_name}</h2><button className="icon-button" onClick={() => setCurrent(initialTransform)} title="변형 초기화"><RotateCcw size={16} /></button></div>
+          <div className="card-header"><h2 className="truncate">{data.files[selected].name}</h2><button className="icon-button" onClick={() => setCurrent(initialTransform)} title="변형 초기화"><RotateCcw size={16} /></button></div>
           <div className="card-body">
             {scaled ? <div className={tooLarge ? "dimension-row dimension-row-error" : "dimension-row"}>{(["x", "y", "z"] as const).map((axis) => <label key={axis}><span>{axis.toUpperCase()}</span><input type="number" min="0.1" step="0.1" value={scaled[axis].toFixed(1)} onChange={(event) => setDimension(axis, Number(event.target.value))} /><small>mm</small></label>)}</div> : <div className="skeleton dimension-skeleton" />}
             {tooLarge ? <div className="notice notice-danger">출력 가능 범위 256 × 256 × 256mm를 초과합니다.</div> : null}
@@ -246,35 +251,37 @@ export default function UploadPage() {
   const [printerId, setPrinterId] = useState("");
   const [slotIndex, setSlotIndex] = useState("");
   const [preview, setPreview] = useState<PreviewData | null>(null);
-  const [busy, setBusy] = useState<"stl" | "sliced" | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
   useEffect(() => {
     api<{ printers: Printer[] }>("/api/upload").then((data) => setPrinters(data.printers)).catch(() => {});
   }, []);
-  const submit = async (kind: "stl" | "sliced") => {
-    setBusy(kind); setError("");
+  // STL preview is entirely client-side — hand the picked files straight to the
+  // workbench, no upload. The file only goes to the server on 출력 신청 there.
+  const openStlWorkbench = () => {
+    setError("");
+    const oversize = stlFiles.find((file) => file.size > MAX_FILE_BYTES);
+    if (oversize) { setError(`${oversize.name} 파일이 100MB를 넘습니다`); return; }
+    setPreview({ files: stlFiles.map((file) => ({ file, name: file.name })), printers });
+  };
+  const submitSliced = async () => {
+    setBusy(true); setError("");
     const form = new FormData();
-    const files = kind === "stl" ? stlFiles : slicedFiles;
-    files.forEach((file) => form.append("files", file));
-    if (kind === "sliced") {
-      form.append("user_notes", notes);
-      form.append("printer_id", printerId);
-      form.append("ams_slot", slotIndex);
-    }
+    slicedFiles.forEach((file) => form.append("files", file));
+    form.append("user_notes", notes);
+    form.append("printer_id", printerId);
+    form.append("ams_slot", slotIndex);
     try {
-      if (kind === "stl") setPreview(await api<PreviewData>("/api/upload/stl-preview", { method: "POST", body: form }));
-      else {
-        await api("/api/upload", { method: "POST", body: form });
-        posthog.capture("print_request_submitted", {
-          submission_type: "sliced_3mf",
-          file_count: files.length,
-          printer_selected: Boolean(printerId),
-          filament_preference_selected: Boolean(slotIndex),
-        });
-        setSubmitted(true);
-      }
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "업로드하지 못했습니다."); } finally { setBusy(null); }
+      await api("/api/upload", { method: "POST", body: form });
+      posthog.capture("print_request_submitted", {
+        submission_type: "sliced_3mf",
+        file_count: slicedFiles.length,
+        printer_selected: Boolean(printerId),
+        filament_preference_selected: Boolean(slotIndex),
+      });
+      setSubmitted(true);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "업로드하지 못했습니다."); } finally { setBusy(false); }
   };
   if (preview) return <StlWorkbench data={preview} onBack={() => setPreview(null)} />;
   return (
@@ -286,14 +293,14 @@ export default function UploadPage() {
           <div className="upload-path-title"><Box size={22} /><div><h2>STL 파일</h2><p>브라우저에서 크기와 회전을 확인한 뒤 서버에서 슬라이싱합니다.</p></div></div>
           <FilePicker id="stl-files" acceptAttribute=".stl" accept={(file) => file.name.toLowerCase().endsWith(".stl")} files={stlFiles} onFiles={setStlFiles} title="STL 파일 선택 또는 드롭" hint="여러 파일 · 각 파일 최대 100MB" />
           <div className="notice upload-guidance">복잡한 모델은 Bambu Studio로 직접 슬라이싱하면 더 정확하게 설정할 수 있습니다.</div>
-          <button className={`button button-primary button-full ${busy === "stl" ? "button-loading" : ""}`} disabled={!stlFiles.length || busy !== null} onClick={() => submit("stl")}><Box size={16} /> 3D 미리보기</button>
+          <button className="button button-primary button-full" disabled={!stlFiles.length || busy} onClick={openStlWorkbench}><Box size={16} /> 3D 미리보기</button>
         </section>
         <section className="card upload-path">
           <div className="upload-path-title"><FileArchive size={22} /><div><h2>슬라이싱된 3MF</h2><p>Bambu Studio에서 내보낸 .gcode.3mf 파일을 그대로 제출합니다.</p></div></div>
           <FilePicker id="sliced-files" acceptAttribute=".gcode.3mf" accept={(file) => file.name.toLowerCase().endsWith(".gcode.3mf")} files={slicedFiles} onFiles={setSlicedFiles} title=".gcode.3mf 파일 선택 또는 드롭" hint="여러 파일 · 각 파일 최대 100MB" />
           <PrinterFilamentPicker printers={printers} printerId={printerId} onPrinterChange={setPrinterId} slotIndex={slotIndex} onSlotChange={setSlotIndex} />
           <div className="field"><label htmlFor="sliced-notes">관리자 메모</label><textarea id="sliced-notes" className="textarea" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="출력 시 참고할 내용 (선택)" /></div>
-          <button className={`button button-primary button-full ${busy === "sliced" ? "button-loading" : ""}`} disabled={!slicedFiles.length || busy !== null} onClick={() => submit("sliced")}><Check size={16} /> 출력 신청</button>
+          <button className={`button button-primary button-full ${busy ? "button-loading" : ""}`} disabled={!slicedFiles.length || busy} onClick={submitSliced}><Check size={16} /> 출력 신청</button>
         </section>
       </div>
       {submitted ? <SubmissionSuccessDialog onContinue={() => router.push("/jobs?submitted=1")} /> : null}
