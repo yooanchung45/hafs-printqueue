@@ -436,8 +436,8 @@ h1 { font-weight: 650; }
 .faq summary { cursor: pointer; font-weight: 700; padding: var(--space-md) 0; }
 .faq details p { color: var(--color-muted); padding: 0 0 var(--space-md); }
 .guide-finish { background: var(--color-accent-soft); border-radius: var(--radius-lg); padding: var(--space-2xl); text-align: center; }
-.guide-finish h2 { font-size: var(--text-xl); }
-.guide-finish p { color: var(--color-ink-2); }
+.guide-finish h2 { font-size: var(--text-xl); margin-bottom: var(--space-xs); }
+.guide-finish p { color: var(--color-ink-2); margin-bottom: var(--space-lg); }
 .admin-section { margin-top: var(--space-xl); }
 .admin-page .page-header h1 { margin-bottom: 0; }
 .section-heading { align-items: end; cursor: default; display: flex; gap: var(--space-md); justify-content: space-between; list-style: none; margin-bottom: var(--space-md); }
