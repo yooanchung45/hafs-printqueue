@@ -35,6 +35,15 @@ function predictAutoPrinter(printers: Printer[]): Printer | undefined {
   );
 }
 
+// hex of the currently picked filament slot — feeds the 3D viewer's model
+// colour. undefined = 선호 없음, viewer falls back to the theme token.
+function selectedFilamentHex(printers: Printer[], printerId: string, slotIndex: string): string | undefined {
+  if (!slotIndex) return undefined;
+  const printer = printers.find((item) => String(item.id) === printerId) ?? predictAutoPrinter(printers);
+  const slot = printer?.slots?.find((item) => String(item.slot_index) === slotIndex && !item.is_empty);
+  return slot?.color_hex ?? undefined;
+}
+
 // Shared by both submission paths (direct .gcode.3mf upload and the STL
 // confirm step). Printer choice is optional — blank routes through the
 // predicted auto-assign printer above so a colour can still be picked. The
@@ -322,6 +331,7 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
           <StlViewer
             url={objectUrls[selected]}
             transform={current}
+            color={selectedFilamentHex(data.printers, printerId, slotIndex)}
             onDimensions={useCallback((next: Dimensions) => setDimensions((values) => ({ ...values, [selected]: next })), [selected])}
             onStats={useCallback((next: { triangles: number }) => setTriangles((values) => ({ ...values, [selected]: next.triangles })), [selected])}
           />
@@ -584,6 +594,7 @@ function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => voi
             parts={editorParts}
             selected={selected}
             invalid={invalid}
+            color={selectedFilamentHex(data.printers, printerId, slotIndex)}
             onSelect={setSelected}
             onMove={(i, pos) => patchTransform(i, pos)}
             onPartMetrics={onPartMetrics}

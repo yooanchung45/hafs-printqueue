@@ -107,6 +107,15 @@ function disposeGroup(group: THREE.Group) {
   });
 }
 
+/** DB colour_hex sometimes carries an alpha pair; THREE.Color.set only takes
+ * #rgb / #rrggbb. Returns null for an empty / unusable value. */
+function toColorHex(hex: string | undefined | null): string | null {
+  if (!hex) return null;
+  const s = hex.trim();
+  if (!s) return null;
+  return s.length === 9 ? s.slice(0, 7) : s;
+}
+
 const _boxVertex = new THREE.Vector3();
 
 /** Tight AABB of a mesh's vertices under its own local matrix (rotation + scale,
@@ -140,7 +149,7 @@ function applyTransform(model: THREE.Mesh, transform: ModelTransform) {
   model.position.y = -tightLocalBox(model).min.y;
 }
 
-export function StlViewer({ url, transform, className = "", onDimensions, onStats }: { url: string; transform?: ModelTransform; className?: string; onDimensions?: (size: { x: number; y: number; z: number }) => void; onStats?: (stats: { triangles: number }) => void }) {
+export function StlViewer({ url, transform, className = "", onDimensions, onStats, color }: { url: string; transform?: ModelTransform; className?: string; onDimensions?: (size: { x: number; y: number; z: number }) => void; onStats?: (stats: { triangles: number }) => void; color?: string }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<THREE.Mesh | null>(null);
   const transformRef = useRef<ModelTransform>(transform ?? DEFAULT_TRANSFORM);
@@ -148,6 +157,8 @@ export function StlViewer({ url, transform, className = "", onDimensions, onStat
   onDimensionsRef.current = onDimensions;
   const onStatsRef = useRef(onStats);
   onStatsRef.current = onStats;
+  const colorRef = useRef(color);
+  colorRef.current = color;
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
 
   // Scene/camera/renderer/model setup — only ever tears down and rebuilds
@@ -202,7 +213,7 @@ export function StlViewer({ url, transform, className = "", onDimensions, onStat
       const model = new THREE.Mesh(
         geometry,
         new THREE.MeshPhongMaterial({
-          color: modelColor,
+          color: toColorHex(colorRef.current) ?? modelColor,
           specular: 0x2b2b2b,
           shininess: 40,
           side: THREE.DoubleSide,
@@ -296,6 +307,14 @@ export function StlViewer({ url, transform, className = "", onDimensions, onStat
     applyTransform(model, transformRef.current);
   }, [transform]);
 
+  // Recolour the loaded model to the selected filament (or back to the token).
+  useEffect(() => {
+    const model = modelRef.current;
+    if (!model) return;
+    const fallback = getComputedStyle(document.documentElement).getPropertyValue("--color-model").trim();
+    (model.material as THREE.MeshPhongMaterial).color.set(toColorHex(color) ?? fallback);
+  }, [color]);
+
   return (
     <div className={`stl-viewer ${className}`} role="img" aria-label="3D 모델 미리보기">
       <div ref={mountRef} className="stl-viewer-mount" />
@@ -374,6 +393,7 @@ export function StlPlateEditor({
   onSelect,
   onMove,
   onPartMetrics,
+  color,
   className = "",
 }: {
   parts: { url: string; transform: PartTransform }[];
@@ -382,12 +402,15 @@ export function StlPlateEditor({
   onSelect: (index: number | null) => void;
   onMove: (index: number, pos: { x: number; y: number }) => void;
   onPartMetrics: (index: number, metrics: PartMetrics) => void;
+  color?: string;
   className?: string;
 }) {
   const mountRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<PlateScene | null>(null);
   const partsRef = useRef(parts);
   partsRef.current = parts;
+  const colorRef = useRef(color);
+  colorRef.current = color;
   const selectedRef = useRef(selected);
   selectedRef.current = selected;
   const invalidRef = useRef(invalid);
@@ -530,7 +553,7 @@ export function StlPlateEditor({
       const mesh = new THREE.Mesh(
         geometry,
         new THREE.MeshPhongMaterial({
-          color: modelColor,
+          color: toColorHex(colorRef.current) ?? modelColor,
           specular: 0x2b2b2b,
           shininess: 40,
           side: THREE.DoubleSide,
@@ -686,6 +709,17 @@ export function StlPlateEditor({
   useEffect(() => { applyTransforms(); }, [parts]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { updateHighlights(); }, [selected, invalid]);
+
+  // Recolour every part to the selected filament (or back to the token).
+  useEffect(() => {
+    const s = sceneRef.current;
+    if (!s) return;
+    const fallback = getComputedStyle(document.documentElement).getPropertyValue("--color-model").trim();
+    const next = toColorHex(color) ?? fallback;
+    s.meshes.forEach((mesh: THREE.Mesh | null) => {
+      if (mesh) (mesh.material as THREE.MeshPhongMaterial).color.set(next);
+    });
+  }, [color, urlsKey]);
 
   return (
     <div className={`stl-viewer ${className}`} role="img" aria-label="3D 배치 편집기">
