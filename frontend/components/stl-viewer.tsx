@@ -306,6 +306,24 @@ export interface PartMetrics {
   triangles: number;
 }
 
+const _boxVertex = new THREE.Vector3();
+
+/** Tight AABB of a mesh's vertices under its local matrix (rotation + scale,
+ * position zeroed) — in the parent group's frame. Vertex-accurate, unlike
+ * boundingBox.applyMatrix4 which returns the AABB of the rotated AABB. */
+function tightLocalBox(mesh: THREE.Mesh): THREE.Box3 {
+  const position = mesh.geometry.getAttribute("position");
+  const box = new THREE.Box3();
+  // Sample huge meshes so spinning the rotation dial stays smooth — a skipped
+  // extreme vertex shifts the drop by a fraction of a millimetre at most.
+  const stride = position.count > 60000 ? Math.ceil(position.count / 60000) : 1;
+  for (let i = 0; i < position.count; i += stride) {
+    _boxVertex.fromBufferAttribute(position, i).applyMatrix4(mesh.matrix);
+    box.expandByPoint(_boxVertex);
+  }
+  return box;
+}
+
 /** R = Rz·Ry·Rx applied to a column vector — matches backend merge_stls so the
  * preview and the sliced plate agree even for multi-axis rotations. */
 function eulerFromDegrees(rx: number, ry: number, rz: number): THREE.Euler {
@@ -378,6 +396,11 @@ export function StlPlateEditor({
   const cbRef = useRef({ onSelect, onMove, onPartMetrics });
   cbRef.current = { onSelect, onMove, onPartMetrics };
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  // Per-part { footprint centre, drop height, size } for the current scale +
+  // rotation. Recomputed from the actual vertices (a rotated bounding box is
+  // far looser than the real hull, which is what left parts floating), and
+  // cached so a plain XY drag doesn't re-walk the mesh.
+  const shapeRef = useRef<Record<number, { key: string; cx: number; cy: number; dropZ: number; size: THREE.Vector3 }>>({});
 
   const urlsKey = parts.map((part) => part.url).join("|");
 
@@ -387,20 +410,29 @@ export function StlPlateEditor({
     if (!s) return;
     partsRef.current.forEach((part, index) => {
       const mesh = s.meshes[index];
-      const box = mesh?.geometry.boundingBox;
-      if (!mesh || !box) return;
+      if (!mesh) return;
       const t = part.transform;
       mesh.scale.setScalar(t.scale);
       mesh.rotation.copy(eulerFromDegrees(t.rotationX, t.rotationY, t.rotationZ));
-      mesh.position.set(0, 0, 0);
-      mesh.updateMatrix();
-      const world = box.clone().applyMatrix4(mesh.matrix);
-      const centre = world.getCenter(new THREE.Vector3());
-      const size = world.getSize(new THREE.Vector3());
-      mesh.position.set(t.x - centre.x, t.y - centre.y, -world.min.z);
+      const key = `${t.scale}|${t.rotationX}|${t.rotationY}|${t.rotationZ}`;
+      let shape = shapeRef.current[index];
+      if (!shape || shape.key !== key) {
+        mesh.position.set(0, 0, 0);
+        mesh.updateMatrix();
+        const box = tightLocalBox(mesh);
+        shape = {
+          key,
+          cx: (box.min.x + box.max.x) / 2,
+          cy: (box.min.y + box.max.y) / 2,
+          dropZ: -box.min.z,
+          size: box.getSize(new THREE.Vector3()),
+        };
+        shapeRef.current[index] = shape;
+      }
+      mesh.position.set(t.x - shape.cx, t.y - shape.cy, shape.dropZ);
       mesh.updateMatrix();
       cbRef.current.onPartMetrics(index, {
-        size: { x: size.x, y: size.y, z: size.z },
+        size: { x: shape.size.x, y: shape.size.y, z: shape.size.z },
         triangles: mesh.geometry.getAttribute("position").count / 3,
       });
     });
@@ -491,6 +523,7 @@ export function StlPlateEditor({
     let disposed = false;
     const currentParts = partsRef.current;
     state.meshes = currentParts.map(() => null);
+    shapeRef.current = {};
     let loaded = 0;
 
     const placeMesh = (index: number, geometry: THREE.BufferGeometry) => {
