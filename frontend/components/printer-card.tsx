@@ -3,10 +3,15 @@ import { Layers3, Thermometer } from "lucide-react";
 import { CameraFeed } from "@/components/camera-feed";
 import { JobPreview } from "@/components/job-preview";
 import { StatusBadge } from "@/components/status-badge";
+import { printProgress } from "@/lib/api";
 import type { Printer } from "@/lib/types";
 
 export function PrinterCard({ printer, userId }: { printer: Printer; userId: number }) {
   const jobs = printer.jobs ?? [];
+  const activeJob = jobs.find((job) => job.status === "printing");
+  // Time-based estimate first; fall back to the printer's own reported % (e.g.
+  // pre-sliced Bambu files carry no minute estimate).
+  const pct = (activeJob ? printProgress(activeJob) : null) ?? (printer.status === "printing" ? printer.progress : null);
   return (
     <article className="card printer-card">
       <header className="printer-card-header">
@@ -16,7 +21,7 @@ export function PrinterCard({ printer, userId }: { printer: Printer; userId: num
             <span className="temperature"><Thermometer size={13} /> 노즐 {Math.round(printer.nozzle_temp)}° · 베드 {Math.round(printer.bed_temp ?? 0)}°</span>
           ) : <span className="temperature">상태 정보 없음</span>}
         </div>
-        <StatusBadge status={printer.status} suffix={printer.status === "printing" && printer.progress != null ? `${printer.progress}%` : undefined} />
+        <StatusBadge status={printer.status} suffix={printer.status === "printing" && pct != null ? `${pct}%` : undefined} />
       </header>
       {printer.status !== "offline" && printer.ip && printer.has_access_code ? (
         <CameraFeed printerId={printer.id} printerName={printer.name} />

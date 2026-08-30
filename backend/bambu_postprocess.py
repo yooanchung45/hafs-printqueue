@@ -9,8 +9,108 @@ Usage:
     output_path = postprocess_for_bambu_a1("/path/to/input.gcode", nozzle_temp=220, bed_temp=65)
 """
 
+import math
 import re
 from pathlib import Path
+
+# ── Kinematic time simulation ───────────────────────────────────────────────
+# PrusaSlicer only writes one M73 (total time) at the top and never updates it,
+# so the A1 shows a stuck % for site-sliced prints. We walk the gcode, add up
+# distance / feedrate with a trapezoidal accel envelope, and re-emit M73 at
+# every layer — time-weighted, not "linear per layer".
+_ACCEL_MM_S2 = 8000.0      # blended accel; A1 start gcode sets M204 P12000/T12000
+_TIME_CALIBRATION = 1.0    # global fudge on the simulated total; tune vs a real print
+_LAYER_MARKER = re.compile(r";\s*layer", re.IGNORECASE)
+_AXIS = re.compile(r"([XYZEF])(-?\d*\.?\d+)")
+
+
+def _move_seconds(dist_mm: float, feed_mm_s: float) -> float:
+    """Trapezoidal accel/decel time for one move."""
+    if dist_mm <= 1e-9 or feed_mm_s <= 1e-9:
+        return 0.0
+    ramp = feed_mm_s * feed_mm_s / (2.0 * _ACCEL_MM_S2)   # accel + decel each need this
+    if 2.0 * ramp <= dist_mm:
+        return (dist_mm - 2.0 * ramp) / feed_mm_s + 2.0 * feed_mm_s / _ACCEL_MM_S2
+    return 2.0 * math.sqrt(dist_mm / _ACCEL_MM_S2)         # never reaches feed_mm_s
+
+
+def _simulate_print(body_lines: list[str]) -> tuple[float, list[float]]:
+    """Return (total_seconds, cumulative_seconds_at_each_layer_marker)."""
+    x = y = z = e = 0.0
+    feed = 30.0 * 60.0        # mm/min, until the first F
+    relative_e = False
+    total = 0.0
+    layer_cum: list[float] = []
+
+    for raw in body_lines:
+        if _LAYER_MARKER.search(raw):
+            layer_cum.append(total)
+        line = raw.split(";", 1)[0].strip()
+        if not line:
+            continue
+        head = line.split(" ", 1)[0].upper()
+        if head == "M82":
+            relative_e = False
+            continue
+        if head == "M83":
+            relative_e = True
+            continue
+        if head == "G4":
+            m_p = re.search(r"P(\d+)", line)
+            m_s = re.search(r"S(\d+(?:\.\d+)?)", line)
+            total += (int(m_p.group(1)) / 1000.0) if m_p else (float(m_s.group(1)) if m_s else 0.0)
+            continue
+        if head == "G92":
+            for axis, val in _AXIS.findall(line):
+                if axis == "X": x = float(val)
+                elif axis == "Y": y = float(val)
+                elif axis == "Z": z = float(val)
+                elif axis == "E": e = float(val)
+            continue
+        if head not in ("G0", "G1"):
+            continue
+
+        nx, ny, nz, ne, moved_xyz = x, y, z, e, False
+        for axis, val in _AXIS.findall(line):
+            fv = float(val)
+            if axis == "X": nx, moved_xyz = fv, True
+            elif axis == "Y": ny, moved_xyz = fv, True
+            elif axis == "Z": nz, moved_xyz = fv, True
+            elif axis == "E": ne = (e + fv) if relative_e else fv
+            elif axis == "F": feed = fv
+
+        if moved_xyz:
+            dist = math.sqrt((nx - x) ** 2 + (ny - y) ** 2 + (nz - z) ** 2)
+        else:
+            dist = abs(ne - e)   # pure extrude / retract
+        total += _move_seconds(dist, feed / 60.0)
+        x, y, z, e = nx, ny, nz, ne
+
+    factor = _TIME_CALIBRATION
+    return total * factor, [c * factor for c in layer_cum]
+
+
+def _inject_progress_markers(body_lines: list[str], total_s: float, layer_cum: list[float]) -> list[str]:
+    """Re-emit the body with our own M73 P{pct} R{remaining_min} at each layer
+    boundary; drop PrusaSlicer's stray M73 so the firmware reads only ours."""
+    if total_s <= 1.0 or not layer_cum:
+        return [l for l in body_lines if not l.lstrip().startswith("M73")]
+    out: list[str] = []
+    layer_idx = 0
+    last_pct = -1
+    for raw in body_lines:
+        if raw.lstrip().startswith("M73"):
+            continue
+        out.append(raw)
+        if _LAYER_MARKER.search(raw):
+            cum = layer_cum[layer_idx] if layer_idx < len(layer_cum) else total_s
+            layer_idx += 1
+            pct = min(99, max(0, round(cum / total_s * 100.0)))
+            if pct != last_pct:
+                remaining = max(0, round((total_s - cum) / 60.0))
+                out.append(f"M73 P{pct} R{remaining}\n")
+                last_pct = pct
+    return out
 
 
 # ── Bambu A1 machine start gcode ─────────────────────────────────────────────
@@ -291,8 +391,16 @@ def postprocess_for_bambu_a1(
 
     body_lines = _strip_prusa_start_end(original_lines)
 
-    ps_est = _prusa_time_estimate(original_lines)
-    estimated_minutes = ps_est if ps_est is not None else 30
+    total_s, layer_cum = _simulate_print(body_lines)
+    if total_s > 60.0:
+        estimated_minutes = max(1, round(total_s / 60.0))
+        body_lines = _inject_progress_markers(body_lines, total_s, layer_cum)
+    else:
+        # simulation produced nothing usable — fall back to PrusaSlicer's own total
+        ps_est = _prusa_time_estimate(original_lines)
+        estimated_minutes = ps_est if ps_est is not None else 30
+        body_lines = [l for l in body_lines if not l.lstrip().startswith("M73")]
+
     max_z = _estimate_max_z(body_lines)
     z_safe = round(max_z + 0.5, 1)
     z_park = min(round(max_z + 100.0, 1), 256.0)
