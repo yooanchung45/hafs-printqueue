@@ -28,6 +28,32 @@ ALLOWED_STL = {".stl"}
 MAX_FILE_SIZE = 100 * 1024 * 1024
 
 
+async def _save_upload(file: UploadFile, dest: Path) -> int:
+    """Persist an UploadFile without blocking the event loop on disk I/O.
+
+    Buffers the part (Starlette's read() is already threadpooled for the spool),
+    then writes once from a worker thread. A plain synchronous write loop here
+    stalls the loop for the whole transfer on a slow SD card, which is long
+    enough for the reverse proxy to give up with a 502 on large STLs.
+
+    Raises HTTPException(413) over the size cap, HTTPException(507) on I/O error.
+    """
+    size = 0
+    buf = bytearray()
+    while chunk := await file.read(4 * 1024 * 1024):
+        size += len(chunk)
+        if size > MAX_FILE_SIZE:
+            raise HTTPException(413, "파일은 100MB를 넘을 수 없습니다")
+        buf.extend(chunk)
+    try:
+        await asyncio.get_running_loop().run_in_executor(None, dest.write_bytes, buf)
+    except OSError as exc:
+        dest.unlink(missing_ok=True)
+        logger.error("업로드 저장 실패 file=%s: %s", file.filename, exc)
+        raise HTTPException(507, "서버에 파일을 저장하지 못했습니다. 관리자에게 문의해 주세요")
+    return size
+
+
 async def pick_best_printer(db: AsyncSession) -> Printer:
     printers = (await db.execute(select(Printer).order_by(Printer.id))).scalars().all()
     if not printers:
@@ -153,14 +179,7 @@ async def upload_submit(
     for file in files:
         extension = Path(file.filename).suffix.lower()
         file_path = upload_dir / f"{uuid.uuid4().hex}{extension}"
-        total_size = 0
-        with open(file_path, "wb") as destination:
-            while chunk := await file.read(1024 * 1024):
-                total_size += len(chunk)
-                if total_size > MAX_FILE_SIZE:
-                    file_path.unlink(missing_ok=True)
-                    raise HTTPException(413, "파일은 100MB를 넘을 수 없습니다")
-                destination.write(chunk)
+        total_size = await _save_upload(file, file_path)
         job = Job(
             user_id=user.id,
             printer_id=printer.id,
@@ -270,21 +289,7 @@ async def stl_confirm(
     saved = []  # (temp_path, original_name, size, part_spec)
     for index, file in enumerate(files):
         file_path = upload_dir / f"{uuid.uuid4().hex}.stl"
-        total_size = 0
-        try:
-            with open(file_path, "wb") as destination:
-                while chunk := await file.read(1024 * 1024):
-                    total_size += len(chunk)
-                    if total_size > MAX_FILE_SIZE:
-                        file_path.unlink(missing_ok=True)
-                        raise HTTPException(413, "파일은 100MB를 넘을 수 없습니다")
-                    destination.write(chunk)
-        except OSError as exc:
-            # Full disk / unwritable upload dir would otherwise bubble up as a
-            # bare 500 and the client only sees the generic error banner.
-            file_path.unlink(missing_ok=True)
-            logger.error("STL 저장 실패 file=%s: %s", file.filename, exc)
-            raise HTTPException(507, "서버에 파일을 저장하지 못했습니다. 관리자에게 문의해 주세요")
+        total_size = await _save_upload(file, file_path)
         saved.append((
             str(file_path),
             file.filename,
