@@ -25,7 +25,17 @@ logger = logging.getLogger("jobs")
 router = APIRouter(prefix="/api", tags=["jobs"])
 ALLOWED_SLICED_SUFFIX = ".gcode.3mf"
 ALLOWED_STL = {".stl"}
-MAX_FILE_SIZE = 100 * 1024 * 1024
+# Application file total; the upstream proxy may impose a separate request limit.
+MAX_BATCH_BYTES = 100 * 1024 * 1024
+MAX_FILE_SIZE = MAX_BATCH_BYTES
+
+
+def _validate_upload_sizes(files: List[UploadFile]) -> None:
+    # Starlette's multipart parser calculates size from the received file bytes.
+    if any((file.size or 0) > MAX_FILE_SIZE for file in files):
+        raise HTTPException(413, "파일은 100MB를 넘을 수 없습니다")
+    if sum(file.size or 0 for file in files) > MAX_BATCH_BYTES:
+        raise HTTPException(413, "한 번에 업로드할 수 있는 파일의 합계는 100MB입니다. 파일을 나누어 신청해 주세요.")
 
 
 async def pick_best_printer(db: AsyncSession) -> Printer:
@@ -125,7 +135,7 @@ async def upload_options(
 ):
     return {
         "printers": await _printers_payload(db),
-        "limits": {"max_file_bytes": MAX_FILE_SIZE, "attachment_bytes": 10 * 1024 * 1024},
+        "limits": {"max_file_bytes": MAX_FILE_SIZE, "max_batch_bytes": MAX_BATCH_BYTES, "attachment_bytes": 10 * 1024 * 1024},
     }
 
 
@@ -144,6 +154,7 @@ async def upload_submit(
     if any(not file.filename.lower().endswith(ALLOWED_SLICED_SUFFIX) for file in files):
         raise HTTPException(422, ".gcode.3mf 파일만 업로드할 수 있습니다")
 
+    _validate_upload_sizes(files)
     printer = await resolve_printer(db, printer_id)
     requested_slot = _parse_ams_slot(ams_slot)
     notes = user_notes.strip() or None
@@ -188,6 +199,7 @@ async def stl_preview(
 ):
     if not files or all(not file.filename for file in files):
         raise HTTPException(422, "파일을 선택해 주세요")
+    _validate_upload_sizes(files)
     upload_dir = Path(settings.UPLOAD_DIR)
     upload_dir.mkdir(parents=True, exist_ok=True)
     saved = []

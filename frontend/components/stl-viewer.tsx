@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
@@ -129,12 +129,20 @@ function applyTransform(model: THREE.Mesh, transform: ModelTransform) {
   model.position.y = size.y / 2;
 }
 
-export function StlViewer({ url, transform, className = "", onDimensions }: { url: string; transform?: ModelTransform; className?: string; onDimensions?: (size: { x: number; y: number; z: number }) => void }) {
+type StlViewerProps = { url: string; transform?: ModelTransform; className?: string; onDimensions?: (size: { x: number; y: number; z: number }) => void };
+
+export function StlViewer(props: StlViewerProps) {
+  // A different file starts with a fresh loading state, including when revisiting a tab.
+  return <StlViewerScene key={props.url} {...props} />;
+}
+
+function StlViewerScene({ url, transform, className = "", onDimensions }: StlViewerProps) {
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const mountRef = useRef<HTMLDivElement>(null);
   const modelRef = useRef<THREE.Mesh | null>(null);
   const transformRef = useRef<ModelTransform>(transform ?? DEFAULT_TRANSFORM);
   const onDimensionsRef = useRef(onDimensions);
-  onDimensionsRef.current = onDimensions;
+  useEffect(() => { onDimensionsRef.current = onDimensions; }, [onDimensions]);
 
   // Scene/camera/renderer/model setup — only ever tears down and rebuilds
   // when the file itself changes, not on every scale/rotation tweak.
@@ -171,12 +179,13 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     controls.dampingFactor = 0.08;
 
     let frame = 0;
+    let disposed = false;
     const loader = new STLLoader();
     loader.load(url, (geometry) => {
+      if (disposed) { geometry.dispose(); return; }
       geometry.computeVertexNormals();
       geometry.computeBoundingBox();
       const originalSize = geometry.boundingBox?.getSize(new THREE.Vector3());
-      if (originalSize) onDimensionsRef.current?.({ x: originalSize.x, y: originalSize.y, z: originalSize.z });
       geometry.center();
       const model = new THREE.Mesh(
         geometry,
@@ -204,6 +213,12 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
       // is why the Z label was getting clipped at the top of the viewport.
       axisIndicators = buildAxisIndicators(THREE.MathUtils.clamp(span * 1.1, 30, 120));
       scene.add(axisIndicators);
+      // Keep the overlay until the mesh and its edges have actually been rendered.
+      renderer.render(scene, camera);
+      if (originalSize) onDimensionsRef.current?.({ x: originalSize.x, y: originalSize.y, z: originalSize.z });
+      setStatus("ready");
+    }, undefined, () => {
+      if (!disposed) setStatus("error");
     });
 
     const resize = () => {
@@ -223,6 +238,7 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     };
     render();
     return () => {
+      disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
       controls.dispose();
@@ -246,7 +262,6 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     };
     // url only — see the effect below for applying transform changes to the
     // already-loaded model without rebuilding the scene/camera.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
 
   // Re-applies scale/rotation to the existing model when transform changes.
@@ -258,5 +273,16 @@ export function StlViewer({ url, transform, className = "", onDimensions }: { ur
     applyTransform(model, transformRef.current);
   }, [transform]);
 
-  return <div ref={mountRef} className={`stl-viewer ${className}`} role="img" aria-label="3D 모델 미리보기" />;
+  return (
+    <div className={`stl-viewer ${className}`} role="group" aria-label="3D 모델 미리보기" aria-busy={status === "loading"}>
+      <div ref={mountRef} className="stl-viewer-canvas" role="img" aria-label="3D 모델" />
+      {status !== "ready" ? (
+        <div className={`stl-viewer-overlay ${status === "loading" ? "stl-viewer-loading" : ""}`} role={status === "error" ? "alert" : "status"}>
+          {status === "loading" ? <span className="spinner stl-viewer-spinner" aria-hidden="true" /> : null}
+          <strong>{status === "loading" ? "3D 미리보기를 준비하고 있습니다" : "미리보기를 불러오지 못했습니다"}</strong>
+          <span>{status === "loading" ? "큰 파일은 시간이 조금 걸릴 수 있습니다." : "잠시 후 다시 시도해 주세요."}</span>
+        </div>
+      ) : null}
+    </div>
+  );
 }

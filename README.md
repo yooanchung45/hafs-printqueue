@@ -31,6 +31,10 @@ hafs-printqueue/
 
 브라우저는 Next.js의 `3000` 포트에만 접속합니다. Next.js가 `/api/*` 요청을 FastAPI의 동일한 `/api/*` 경로로 프록시합니다. FastAPI는 HTML을 렌더링하지 않습니다.
 
+출력 업로드는 **파일 합계 최대 100MB**(코드 기준 100 × 1024² = 104,857,600바이트)이며, 단일 파일에도 같은 상한을 적용합니다. 화면에서 전송 전에 확인하고, 백엔드의 STL·3MF 업로드에서도 합계 초과 시 파일 저장 전에 413을 반환합니다. 여러 파일도 한 요청으로 전송되므로 합계에 제한을 적용합니다. Next.js의 `experimental.proxyClientMaxBodySize`는 multipart 부가 데이터를 포함하도록 `110mb`로 설정합니다.
+
+이는 앱 자체의 파일 상한입니다. Cloudflare의 요청 전체 제한은 별도로 적용되므로 상한에 가까운 파일은 Cloudflare에서 413으로 거절될 수 있습니다. 계정의 실제 요금제와 Network → Maximum Upload Size 설정은 저장소에서 확인되지 않았습니다. [Cloudflare 공식 업로드 제한](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/4xx-client-error/error-413/): Free·Pro 100MB, Business 200MB, Enterprise 500MB 이상. 변경 사항은 프런트엔드·백엔드 이미지 재빌드 및 재배포 후 운영에 반영됩니다.
+
 ## 주요 기능
 
 ### 학생

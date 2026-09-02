@@ -19,7 +19,10 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
-    throw new ApiError(payload?.detail ?? "요청을 처리하지 못했습니다.", response.status);
+    const fallback = response.status === 413
+      ? "업로드 용량이 서버 제한을 초과했습니다. 파일 크기나 개수를 줄여 다시 시도해 주세요."
+      : "요청을 처리하지 못했습니다.";
+    throw new ApiError(payload?.detail ?? fallback, response.status);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
