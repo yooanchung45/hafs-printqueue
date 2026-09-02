@@ -58,6 +58,7 @@ export interface Job {
   queue_position: number | null;
   ams_slot: number | null;
   estimated_minutes: number | null;
+  progress: number | null;
   created_at: string | null;
   approved_at: string | null;
   started_at: string | null;

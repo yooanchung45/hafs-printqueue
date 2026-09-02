@@ -26,7 +26,7 @@ export default function BoardPage() {
   return (
     <div className="page">
       <header className="page-header"><div><h1>게시판</h1></div><Link href={`/board/new${category !== "all" ? `?category=${category}` : ""}`} className="button button-primary"><PenLine size={16} /> 새 글</Link></header>
-      <nav className="tabs" aria-label="게시판 카테고리">{categories.map((item) => <Link key={item.value} href={item.value === "all" ? "/board" : `/board?category=${item.value}`} className={category === item.value ? "tab tab-active" : "tab"}>{item.label}</Link>)}</nav>
+      <nav className="tabs" aria-label="게시판 카테고리">{categories.map((item) => <Link key={item.value} href={item.value === "all" ? "/board" : `/board?category=${item.value}`} className={`tab tab-${item.value}${category === item.value ? " tab-active" : ""}`}>{item.label}</Link>)}</nav>
       {error ? <div className="notice notice-danger error-banner">{error}</div> : null}
       {posts === null ? <div className="skeleton" /> : posts.length === 0 ? <EmptyState icon={MessageSquare} title="게시글이 없습니다" body="궁금한 점이나 공유하고 싶은 내용을 첫 글로 남겨보세요." action={<Link href="/board/new" className="button button-primary">첫 글 작성</Link>} /> : (
         <div className="board-list">

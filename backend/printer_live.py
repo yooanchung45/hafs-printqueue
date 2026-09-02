@@ -19,5 +19,9 @@ async def _status_loop(db_maker):
 
 
 async def start_background_tasks(db_maker):
-    """Called from lifespan after DB is ready. Starts the status sync loop."""
+    """Called from lifespan after DB is ready. Starts the status sync loop and
+    the upload-directory cleanup sweep."""
+    from upload_cleanup import cleanup_loop
+
     asyncio.create_task(_status_loop(db_maker))
+    asyncio.create_task(cleanup_loop(db_maker))

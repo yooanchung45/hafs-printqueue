@@ -1,7 +1,6 @@
 """Student-facing print job API routes."""
 import asyncio
 import logging
-import re
 import uuid
 import zipfile
 from pathlib import Path
@@ -18,6 +17,7 @@ from config import settings
 from db import get_db
 from models import FilamentSlot, Job, JobStatus, Printer, User, UserRole
 from notifications import notify_new_jobs
+from upload_cleanup import discard_job_files
 
 
 logger = logging.getLogger("jobs")
@@ -36,6 +36,32 @@ def _validate_upload_sizes(files: List[UploadFile]) -> None:
         raise HTTPException(413, "파일은 100MB를 넘을 수 없습니다")
     if sum(file.size or 0 for file in files) > MAX_BATCH_BYTES:
         raise HTTPException(413, "한 번에 업로드할 수 있는 파일의 합계는 100MB입니다. 파일을 나누어 신청해 주세요.")
+
+
+async def _save_upload(file: UploadFile, dest: Path) -> int:
+    """Persist an UploadFile without blocking the event loop on disk I/O.
+
+    Buffers the part (Starlette's read() is already threadpooled for the spool),
+    then writes once from a worker thread. A plain synchronous write loop here
+    stalls the loop for the whole transfer on a slow SD card, which is long
+    enough for the reverse proxy to give up with a 502 on large STLs.
+
+    Raises HTTPException(413) over the size cap, HTTPException(507) on I/O error.
+    """
+    size = 0
+    buf = bytearray()
+    while chunk := await file.read(4 * 1024 * 1024):
+        size += len(chunk)
+        if size > MAX_FILE_SIZE:
+            raise HTTPException(413, "파일은 100MB를 넘을 수 없습니다")
+        buf.extend(chunk)
+    try:
+        await asyncio.get_running_loop().run_in_executor(None, dest.write_bytes, buf)
+    except OSError as exc:
+        dest.unlink(missing_ok=True)
+        logger.error("업로드 저장 실패 file=%s: %s", file.filename, exc)
+        raise HTTPException(507, "서버에 파일을 저장하지 못했습니다. 관리자에게 문의해 주세요")
+    return size
 
 
 async def pick_best_printer(db: AsyncSession) -> Printer:
@@ -164,14 +190,7 @@ async def upload_submit(
     for file in files:
         extension = Path(file.filename).suffix.lower()
         file_path = upload_dir / f"{uuid.uuid4().hex}{extension}"
-        total_size = 0
-        with open(file_path, "wb") as destination:
-            while chunk := await file.read(1024 * 1024):
-                total_size += len(chunk)
-                if total_size > MAX_FILE_SIZE:
-                    file_path.unlink(missing_ok=True)
-                    raise HTTPException(413, "파일은 100MB를 넘을 수 없습니다")
-                destination.write(chunk)
+        total_size = await _save_upload(file, file_path)
         job = Job(
             user_id=user.id,
             printer_id=printer.id,
@@ -191,60 +210,16 @@ async def upload_submit(
     return {"created": [job_dict(job, printer=printer) for job in jobs]}
 
 
-@router.post("/upload/stl-preview")
-async def stl_preview(
-    files: List[UploadFile] = File(...),
-    _: User = Depends(require_user),
-    db: AsyncSession = Depends(get_db),
+async def _slice_job_bg(
+    job_id: int,
+    stl_path: str,
+    original_name: str,
+    transform: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
+    parts: list[dict] | None = None,
 ):
-    if not files or all(not file.filename for file in files):
-        raise HTTPException(422, "파일을 선택해 주세요")
-    _validate_upload_sizes(files)
-    upload_dir = Path(settings.UPLOAD_DIR)
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    saved = []
-    for file in files:
-        if not file.filename or Path(file.filename).suffix.lower() not in ALLOWED_STL:
-            continue
-        temp_id = uuid.uuid4().hex + ".stl"
-        file_path = upload_dir / temp_id
-        total_size = 0
-        with open(file_path, "wb") as destination:
-            while chunk := await file.read(1024 * 1024):
-                total_size += len(chunk)
-                if total_size > MAX_FILE_SIZE:
-                    file_path.unlink(missing_ok=True)
-                    raise HTTPException(413, "파일은 100MB를 넘을 수 없습니다")
-                destination.write(chunk)
-        if file_path.exists():
-            saved.append(
-                {
-                    "temp_id": temp_id,
-                    "original_name": file.filename,
-                    "url": f"/api/upload/stl-serve/{temp_id}",
-                }
-            )
-    if not saved:
-        raise HTTPException(422, "유효한 STL 파일이 없습니다")
-    return {
-        "files": saved,
-        "printers": await _printers_payload(db),
-    }
-
-
-@router.get("/upload/stl-serve/{temp_id}")
-async def stl_serve(temp_id: str, _: User = Depends(require_user)):
-    if not re.fullmatch(r"[a-f0-9]{32}\.stl", temp_id):
-        raise HTTPException(400, "유효하지 않은 파일 ID입니다")
-    file_path = Path(settings.UPLOAD_DIR) / temp_id
-    if not file_path.exists():
-        raise HTTPException(404, "파일을 찾을 수 없습니다")
-    return FileResponse(str(file_path), media_type="application/octet-stream")
-
-
-async def _slice_job_bg(job_id: int, stl_path: str, original_name: str):
     from db import async_session_maker
     from slicer import SlicingError, slice_stl
+    from stl_transform import apply_transform, merge_stls
 
     async with async_session_maker() as db:
         job = (
@@ -253,7 +228,26 @@ async def _slice_job_bg(job_id: int, stl_path: str, original_name: str):
         if job is None:
             return
         try:
-            final_path, estimated_minutes = await slice_stl(stl_path)
+            # 변환/병합은 큰 파일에서 수십 초가 걸릴 수 있어 요청 핸들러가 아니라
+            # 여기(백그라운드)에서 처리한다.
+            loop = asyncio.get_running_loop()
+            if parts:
+                # Several STLs arranged on one bed -> one merged STL, one slice.
+                transformed_path = await loop.run_in_executor(None, merge_stls, parts)
+                for part in parts:
+                    Path(part["path"]).unlink(missing_ok=True)
+                job.file_path = transformed_path
+                job.file_size = Path(transformed_path).stat().st_size
+            else:
+                scale, rotation_x, rotation_y, rotation_z = transform
+                transformed_path = await loop.run_in_executor(
+                    None, apply_transform, stl_path, scale, rotation_x, rotation_y, rotation_z
+                )
+                if transformed_path != stl_path:
+                    Path(stl_path).unlink(missing_ok=True)
+                    job.file_path = transformed_path
+                    job.file_size = Path(transformed_path).stat().st_size
+            final_path, estimated_minutes = await slice_stl(transformed_path)
             job.file_path = final_path
             job.filename = Path(original_name).stem + Path(final_path).suffix
             job.file_size = Path(final_path).stat().st_size
@@ -274,8 +268,7 @@ async def _slice_job_bg(job_id: int, stl_path: str, original_name: str):
 @router.post("/upload/stl-confirm")
 async def stl_confirm(
     background_tasks: BackgroundTasks,
-    file_ids: List[str] = Form(...),
-    filenames: List[str] = Form(...),
+    files: List[UploadFile] = File(...),
     user_notes: str = Form(""),
     printer_id: str = Form(""),
     ams_slot: str = Form(""),
@@ -283,59 +276,88 @@ async def stl_confirm(
     rotations_x: List[float] = Form(...),
     rotations_y: List[float] = Form(...),
     rotations_z: List[float] = Form(...),
+    positions_x: List[float] = Form([]),
+    positions_y: List[float] = Form([]),
     user: User = Depends(require_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from stl_transform import apply_transform
+    # The STL preview + layout UI is fully client-side; files only reach the
+    # server here, on submit. One file -> one job. Several files -> the student
+    # arranged them on one bed, so they merge into a single job / single slice.
+    # Transform, merge and slicing all run in the background.
+    files = [file for file in files if file.filename]
+    if not files:
+        raise HTTPException(422, "파일을 선택해 주세요")
+    if any(Path(file.filename).suffix.lower() not in ALLOWED_STL for file in files):
+        raise HTTPException(422, "STL 파일만 업로드할 수 있습니다")
 
+    _validate_upload_sizes(files)
     printer = await resolve_printer(db, printer_id)
     requested_slot = _parse_ams_slot(ams_slot)
     notes = user_notes.strip() or None
-    loop = asyncio.get_running_loop()
-    pending = []
-    jobs = []
-    for index, (temp_id, original_name) in enumerate(zip(file_ids, filenames)):
-        if not re.fullmatch(r"[a-f0-9]{32}\.stl", temp_id):
-            continue
-        file_path = Path(settings.UPLOAD_DIR) / temp_id
-        if not file_path.exists():
-            continue
-        scale = scales[index] if index < len(scales) else 1.0
-        rotation_x = rotations_x[index] if index < len(rotations_x) else 0.0
-        rotation_y = rotations_y[index] if index < len(rotations_y) else 0.0
-        rotation_z = rotations_z[index] if index < len(rotations_z) else 0.0
-        stl_path = await loop.run_in_executor(
-            None,
-            apply_transform,
+    upload_dir = Path(settings.UPLOAD_DIR)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    saved = []  # (temp_path, original_name, size, part_spec)
+    for index, file in enumerate(files):
+        file_path = upload_dir / f"{uuid.uuid4().hex}.stl"
+        total_size = await _save_upload(file, file_path)
+        saved.append((
             str(file_path),
-            scale,
-            rotation_x,
-            rotation_y,
-            rotation_z,
-        )
-        if stl_path != str(file_path):
-            file_path.unlink(missing_ok=True)
+            file.filename,
+            total_size,
+            {
+                "path": str(file_path),
+                "scale": scales[index] if index < len(scales) else 1.0,
+                "rotation_x": rotations_x[index] if index < len(rotations_x) else 0.0,
+                "rotation_y": rotations_y[index] if index < len(rotations_y) else 0.0,
+                "rotation_z": rotations_z[index] if index < len(rotations_z) else 0.0,
+                "x": positions_x[index] if index < len(positions_x) else 0.0,
+                "y": positions_y[index] if index < len(positions_y) else 0.0,
+            },
+        ))
+
+    if len(saved) == 1:
+        path, name, size, spec = saved[0]
         job = Job(
             user_id=user.id,
             printer_id=printer.id,
-            filename=original_name,
-            file_path=stl_path,
-            file_size=Path(stl_path).stat().st_size,
+            filename=name,
+            file_path=path,
+            file_size=size,
             status=JobStatus.PROCESSING,
             user_notes=notes,
             ams_slot=requested_slot,
         )
         db.add(job)
         await db.flush()
-        pending.append((job.id, stl_path, original_name))
-        jobs.append(job)
-    if not jobs:
-        raise HTTPException(422, "처리할 STL 파일이 없습니다")
+        await db.commit()
+        notify_new_jobs(user.name, [name], printer.name)
+        transform = (spec["scale"], spec["rotation_x"], spec["rotation_y"], spec["rotation_z"])
+        background_tasks.add_task(_slice_job_bg, job.id, path, name, transform)
+        return {"created": [job_dict(job, printer=printer)]}
+
+    # Multi-part plate: one job, files merged in the background.
+    plate_name = f"{Path(saved[0][1]).stem} 외 {len(saved) - 1}개.stl"
+    job = Job(
+        user_id=user.id,
+        printer_id=printer.id,
+        filename=plate_name,
+        file_path=saved[0][0],  # replaced with the merged STL by the bg task
+        file_size=sum(item[2] for item in saved),
+        status=JobStatus.PROCESSING,
+        user_notes=notes,
+        ams_slot=requested_slot,
+    )
+    db.add(job)
+    await db.flush()
     await db.commit()
-    notify_new_jobs(user.name, [item[2] for item in pending], printer.name)
-    for job_id, stl_path, original_name in pending:
-        background_tasks.add_task(_slice_job_bg, job_id, stl_path, original_name)
-    return {"created": [job_dict(job, printer=printer) for job in jobs]}
+    notify_new_jobs(user.name, [plate_name], printer.name)
+    background_tasks.add_task(
+        _slice_job_bg, job.id, "", plate_name, (1.0, 0.0, 0.0, 0.0),
+        [item[3] for item in saved],
+    )
+    return {"created": [job_dict(job, printer=printer)]}
 
 
 @router.get("/jobs")
@@ -378,6 +400,7 @@ async def cancel_job(
     job.status = JobStatus.CANCELED
     job.queue_position = None
     await db.commit()
+    discard_job_files(job.file_path)  # canceled — the STL/3MF is dead weight now
     if was_queued:
         queued = (
             await db.execute(

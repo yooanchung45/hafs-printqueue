@@ -1,12 +1,25 @@
 """JSON-safe serializers shared by the FastAPI route modules."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
+
+
+def _print_progress(job) -> int | None:
+    """Elapsed-vs-estimate progress (0–99) for a printing job. Time-based: the
+    slicer's minute estimate is the steadiest signal and it counts up on its
+    own between polls. 100 only lands when the status actually flips."""
+    if job.status.value != "printing" or job.started_at is None or not job.estimated_minutes:
+        return None
+    started = job.started_at
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    elapsed_min = (datetime.now(timezone.utc) - started).total_seconds() / 60.0
+    return max(0, min(99, round(elapsed_min / job.estimated_minutes * 100)))
 
 
 def user_dict(user) -> dict[str, Any]:
@@ -73,6 +86,7 @@ def job_dict(job, *, owner=None, printer=None) -> dict[str, Any]:
         "queue_position": job.queue_position,
         "ams_slot": job.ams_slot,
         "estimated_minutes": job.estimated_minutes,
+        "progress": _print_progress(job),
         "created_at": _iso(job.created_at),
         "approved_at": _iso(job.approved_at),
         "started_at": _iso(job.started_at),

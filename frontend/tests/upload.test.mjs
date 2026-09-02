@@ -45,7 +45,7 @@ for (const sizes of [[12], [100], [40, 60], [30, 30, 40]]) {
       }
     }
     const input = Readable.from(tracked());
-    input.url = "/api/upload/stl-preview";
+    input.url = "/api/upload/stl-confirm";
     const body = bodyStreams.getCloneableBody(input, bytes.parse(config.experimental.proxyClientMaxBodySize));
     const actual = createHash("sha256");
     let actualBytes = 0;

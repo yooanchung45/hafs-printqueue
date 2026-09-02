@@ -8,7 +8,7 @@ import posthog from "posthog-js";
 import { EmptyState } from "@/components/empty-state";
 import { JobPreview } from "@/components/job-preview";
 import { StatusBadge } from "@/components/status-badge";
-import { api, ApiError, formatBytes, formatDate } from "@/lib/api";
+import { api, ApiError, formatBytes, formatDate, printProgress } from "@/lib/api";
 import type { Job } from "@/lib/types";
 
 export default function JobsPage() {
@@ -67,7 +67,11 @@ export default function JobsPage() {
               {jobs.map((job) => (
                 <tr key={job.id}>
                   <td><div className="job-file"><strong className="truncate">{job.filename}</strong>{job.user_notes ? <span className="truncate">{job.user_notes}</span> : null}{job.status === "rejected" ? <p className="job-rejection-reason">거절 사유: {job.admin_notes || "등록된 사유가 없습니다"}</p> : null}</div></td>
-                  <td><StatusBadge status={job.status} suffix={job.status === "queued" && job.queue_position ? `#${job.queue_position}` : undefined} /></td>
+                  <td><StatusBadge status={job.status} suffix={
+                    job.status === "printing" ? `${printProgress(job) ?? 0}%`
+                    : job.status === "queued" && job.queue_position ? `#${job.queue_position}`
+                    : undefined
+                  } /></td>
                   <td>{job.printer?.name ?? `#${job.printer_id}`}</td>
                   <td>{formatDate(job.created_at)}</td>
                   <td>{formatBytes(job.file_size)}</td>

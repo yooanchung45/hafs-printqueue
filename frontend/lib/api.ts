@@ -42,6 +42,21 @@ export function formatDate(value: string | null, withYear = false) {
   }).format(date);
 }
 
+/** Time-based print progress (0–99) for a printing job: elapsed since it
+ * started, over the slicer's minute estimate. Recomputes every render so it
+ * ticks up between polls. null when there's no estimate (e.g. a pre-sliced
+ * Bambu file) — callers can fall back to the printer's reported %. */
+export function printProgress(job: {
+  status: string;
+  started_at: string | null;
+  estimated_minutes: number | null;
+}): number | null {
+  if (job.status !== "printing" || !job.started_at || !job.estimated_minutes) return null;
+  const started = new Date(job.started_at.endsWith("Z") ? job.started_at : `${job.started_at}Z`).getTime();
+  const elapsedMin = (Date.now() - started) / 60000;
+  return Math.max(0, Math.min(99, Math.round((elapsedMin / job.estimated_minutes) * 100)));
+}
+
 export function formatBytes(value: number | null) {
   if (value == null) return "—";
   if (value < 1024) return `${value} B`;

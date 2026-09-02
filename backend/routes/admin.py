@@ -32,6 +32,7 @@ from api_serializers import job_dict, printer_admin_dict, printer_dict, user_dic
 from models import FilamentSlot, Job, JobStatus, Printer, User, PrinterStatus
 from email_service import send_approved_email, send_rejected_email, send_print_done_email
 from notifications import notify_print_failed, notify_print_started
+from upload_cleanup import discard_job_files
 
 
 _transfers: dict[str, dict] = {}
@@ -455,6 +456,7 @@ async def reject_job(
     job.status = JobStatus.REJECTED
     job.admin_notes = reason or None
     await db.commit()
+    discard_job_files(job.file_path)  # rejected — keep the row, drop the bytes
 
     if job_user:
         try:
@@ -941,6 +943,8 @@ async def cancel_job(
         printer.progress = None
 
     # An intentional administrator stop is a cancellation, not a print failure.
+    # Keep the file — the printer can be reset and the job reprinted; the
+    # cleanup sweep reclaims it after the retry grace window.
     job.status = JobStatus.CANCELED
     job.completed_at = _utcnow()
     job.failure_acknowledged = True
@@ -988,6 +992,8 @@ async def stop_printer(
             .order_by(Job.started_at.desc(), Job.id.desc())
         )).scalars().first()
     if job is not None and job.status == JobStatus.PRINTING:
+        # Keep the file so the print can be reset and re-run; the cleanup sweep
+        # reclaims it after the retry grace window.
         job.status = JobStatus.CANCELED
         job.completed_at = _utcnow()
         job.failure_acknowledged = True
