@@ -233,6 +233,7 @@ h1 { font-weight: 650; }
   width: 100%;
 }
 .textarea { min-height: 7rem; padding-block: var(--space-sm); resize: vertical; }
+.notes-prompt::placeholder { color: var(--color-danger); opacity: 1; }
 .input:hover, .select:hover, .textarea:hover { border-color: var(--color-muted); }
 .input:focus-visible, .select:focus-visible, .textarea:focus-visible { border-color: var(--color-focus); outline-color: var(--color-focus); }
 .input:disabled, .select:disabled, .textarea:disabled { background: var(--color-paper-2); color: var(--color-muted); cursor: not-allowed; opacity: 0.55; }
