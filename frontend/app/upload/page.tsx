@@ -582,6 +582,15 @@ function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => voi
   const sel = selected != null ? parts[selected] : null;
   const selMetrics = selected != null ? metrics[selected] : undefined;
 
+  // Type a target mm on an axis -> scale the part so that axis matches.
+  // selMetrics.size is the already-scaled AABB, so back out the current scale.
+  const setDimensionMm = (axis: "x" | "y" | "z", value: number) => {
+    if (selected == null || !sel || !selMetrics) return;
+    const extent = selMetrics.size[axis];
+    if (!Number.isFinite(value) || value <= 0 || extent <= 0.001) return;
+    patchTransform(selected, { scale: (value * sel.transform.scale) / extent });
+  };
+
   return (
     <div className="page">
       <header className="page-header">
@@ -642,11 +651,21 @@ function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => voi
             {sel && selected != null ? (
               <>
                 {selMetrics ? (
-                  <div className="dimension-row">
+                  <div className={invalid.has(selected) ? "dimension-row dimension-row-error" : "dimension-row"}>
                     {(["x", "y", "z"] as const).map((axis) => (
                       <label key={axis}>
                         <span>{axis.toUpperCase()}</span>
-                        <input type="text" readOnly value={selMetrics.size[axis].toFixed(1)} />
+                        {/* keyed on the transform so the field resets from the
+                            slider / rotation / a committed edit, but not while typing */}
+                        <input
+                          key={`${selected}:${sel.transform.scale}:${sel.transform.rotationX}:${sel.transform.rotationY}:${sel.transform.rotationZ}`}
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          defaultValue={selMetrics.size[axis].toFixed(1)}
+                          onBlur={(event) => setDimensionMm(axis, Number(event.target.value))}
+                          onKeyDown={(event) => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); }}
+                        />
                         <small>mm</small>
                       </label>
                     ))}
