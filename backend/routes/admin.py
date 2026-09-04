@@ -371,6 +371,21 @@ async def _next_queue_position(db: AsyncSession, printer_id: int) -> int:
     return (last.queue_position or 0) + 1 if last else 1
 
 
+async def _renumber_queue(db: AsyncSession, printer_id: int) -> None:
+    """Re-pack a printer's QUEUED jobs to 1..N. Call whenever a job leaves the
+    queue (starts printing, is canceled/deleted/moved) so a gap doesn't sit at
+    the front forever — _next_queue_position only ever appends after the
+    current max, it never closes a gap on its own."""
+    result = await db.execute(
+        select(Job)
+        .where(Job.printer_id == printer_id)
+        .where(Job.status == JobStatus.QUEUED)
+        .order_by(Job.queue_position, Job.id)
+    )
+    for position, queued_job in enumerate(result.scalars().all(), start=1):
+        queued_job.queue_position = position
+
+
 async def _retry_failed_job(
     db: AsyncSession,
     job: Job,
@@ -671,6 +686,8 @@ async def start_job(
         job.ams_slot = ams_slot
         _mark_print_started(job, printer)
         await db.commit()
+        await _renumber_queue(db, printer.id)
+        await db.commit()
         notify_print_started(job.filename, printer.name)
         return {"ok": True, "job": job_dict(job, printer=printer)}
 
@@ -702,15 +719,7 @@ async def start_job(
     _owner = _owner_result.scalar_one_or_none()
     notify_print_started(job.filename, printer.name, _owner.name if _owner else None)
 
-    # Renumber remaining queued jobs for this printer
-    q_res = await db.execute(
-        select(Job)
-        .where(Job.printer_id == printer.id)
-        .where(Job.status == JobStatus.QUEUED)
-        .order_by(Job.queue_position)
-    )
-    for i, j in enumerate(q_res.scalars().all(), start=1):
-        j.queue_position = i
+    await _renumber_queue(db, printer.id)
     await db.commit()
 
     return {"ok": True, "job": job_dict(job, owner=_owner, printer=printer)}
