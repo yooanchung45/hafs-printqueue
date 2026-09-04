@@ -25,6 +25,32 @@ logger = logging.getLogger("jobs")
 router = APIRouter(prefix="/api", tags=["jobs"])
 ALLOWED_SLICED_SUFFIX = ".gcode.3mf"
 ALLOWED_STL = {".stl"}
+
+
+def _safe_stem(name: str) -> str:
+    """A dotfile-style name (renamed down to just '.gcode.3mf' or '.stl', no
+    basename) has no usable stem, and would otherwise show up as a bare
+    extension in every job list. Never propagate that — fall back to a
+    placeholder."""
+    stem = Path(name or "").stem.strip(" .")
+    return stem or "이름없는 파일"
+
+
+def _require_named_files(files: list[UploadFile], suffix: str) -> None:
+    """Reject an upload with no basename before its extension (renamed down to
+    just '.gcode.3mf' or '.stl', nothing before the dot) up front, with a
+    message the student can act on — instead of letting a job with an
+    unreadable filename show up in every queue. Path(x).stem alone isn't
+    enough here: it splits at the *last* dot, so 'Path(".gcode.3mf").stem'
+    is '.gcode', not empty."""
+    for file in files:
+        name = file.filename or ""
+        base = name[: -len(suffix)] if name.lower().endswith(suffix) else name
+        if not base.strip(" ."):
+            raise HTTPException(
+                422,
+                f"'{name}' 파일에 이름이 없습니다. 파일 이름을 입력한 뒤 다시 업로드해 주세요.",
+            )
 # Application file total; the upstream proxy may impose a separate request limit.
 MAX_BATCH_BYTES = 100 * 1024 * 1024
 MAX_FILE_SIZE = MAX_BATCH_BYTES
@@ -179,6 +205,7 @@ async def upload_submit(
         raise HTTPException(422, "파일을 선택해 주세요")
     if any(not file.filename.lower().endswith(ALLOWED_SLICED_SUFFIX) for file in files):
         raise HTTPException(422, ".gcode.3mf 파일만 업로드할 수 있습니다")
+    _require_named_files(files, ALLOWED_SLICED_SUFFIX)
 
     _validate_upload_sizes(files)
     printer = await resolve_printer(db, printer_id)
@@ -249,7 +276,7 @@ async def _slice_job_bg(
                     job.file_size = Path(transformed_path).stat().st_size
             final_path, estimated_minutes = await slice_stl(transformed_path)
             job.file_path = final_path
-            job.filename = Path(original_name).stem + Path(final_path).suffix
+            job.filename = _safe_stem(original_name) + Path(final_path).suffix
             job.file_size = Path(final_path).stat().st_size
             job.estimated_minutes = estimated_minutes
         except SlicingError as exc:
@@ -290,6 +317,7 @@ async def stl_confirm(
         raise HTTPException(422, "파일을 선택해 주세요")
     if any(Path(file.filename).suffix.lower() not in ALLOWED_STL for file in files):
         raise HTTPException(422, "STL 파일만 업로드할 수 있습니다")
+    _require_named_files(files, ".stl")
 
     _validate_upload_sizes(files)
     printer = await resolve_printer(db, printer_id)
@@ -338,7 +366,7 @@ async def stl_confirm(
         return {"created": [job_dict(job, printer=printer)]}
 
     # Multi-part plate: one job, files merged in the background.
-    plate_name = f"{Path(saved[0][1]).stem} 외 {len(saved) - 1}개.stl"
+    plate_name = f"{_safe_stem(saved[0][1])} 외 {len(saved) - 1}개.stl"
     job = Job(
         user_id=user.id,
         printer_id=printer.id,
