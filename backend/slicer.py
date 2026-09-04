@@ -102,17 +102,32 @@ async def slice_stl(
             pass
         raise SlicingError("슬라이싱 타임아웃 (5분 초과). 파일이 너무 복잡합니다.")
 
-    combined = (stdout or b"").decode("utf-8", errors="replace")
-    if "outside of the print volume" in combined:
-        raise SlicingError("모델이 출력 범위 밖에 있습니다. STL 파일을 다시 업로드해 주세요.")
+    # PrusaSlicer writes most diagnostics to stderr and still exits 0, so scan
+    # both streams — otherwise a plate placed off the bed just looks like a
+    # mysterious "no output file".
+    out_text = (stdout or b"").decode("utf-8", errors="replace")
+    err_text = (stderr or b"").decode("utf-8", errors="replace")
+    combined = f"{out_text}\n{err_text}".lower()
+
+    if "outside of the print volume" in combined or "outside the print volume" in combined:
+        raise SlicingError(
+            "모델이 출력 범위(256×256mm)를 벗어났습니다. 크기를 줄이거나 위치를 조정해 주세요."
+        )
+    if "no extrusions" in combined:
+        raise SlicingError("슬라이싱할 내용이 없습니다. 모델이 유효한 solid(닫힌 메시)인지 확인해 주세요.")
 
     if proc.returncode != 0:
-        err = (stderr or b"").decode("utf-8", errors="replace")[:500]
-        logger.error("슬라이싱 실패 (exit %d): %s", proc.returncode, err)
-        raise SlicingError(f"슬라이싱 실패: {err}")
+        detail = (err_text or out_text).strip()[:400]
+        logger.error("슬라이싱 실패 (exit %d): %s", proc.returncode, detail)
+        raise SlicingError(f"슬라이싱 실패: {detail}")
 
     if not out_path.exists():
-        raise SlicingError("슬라이싱 완료됐지만 출력 파일이 없습니다.")
+        tail = " / ".join((err_text or out_text).strip().splitlines()[-3:])[:400] or "원인 미상"
+        logger.error("슬라이싱 무출력. stdout+stderr:\n%s", f"{out_text}\n{err_text}"[-1200:])
+        raise SlicingError(
+            f"슬라이싱은 끝났지만 출력 파일이 없습니다 ({tail}). "
+            "모델이 베드를 벗어났거나 닫힌 solid가 아닐 수 있습니다."
+        )
 
     # ── Bambu A1 후처리 ──────────────────────────────────────────────────────
     # PrusaSlicer gcode를 Bambu A1이 인식할 수 있는 형식으로 변환

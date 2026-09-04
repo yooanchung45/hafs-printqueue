@@ -354,7 +354,7 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
             <div className="preset-row">{[25, 50, 75, 100].map((percent) => <button key={percent} className="button button-secondary button-small" onClick={() => setCurrent({ scale: percent / 100 })}>{percent}%</button>)}</div>
             <div className="rotation-grid">{(["rotationX", "rotationY", "rotationZ"] as const).map((axis) => <div key={axis}><span>{axis.slice(-1)}</span><button className="button button-secondary button-small" aria-label={`${axis.slice(-1)}축 반시계 방향 90도 회전`} title="−90°" onClick={() => setCurrent({ [axis]: normalizeAngle(current[axis] - 90) })}><RotateCcw size={15} /></button><AngleDial value={current[axis]} onChange={(deg) => setCurrent({ [axis]: deg })} /><button className="button button-secondary button-small" aria-label={`${axis.slice(-1)}축 시계 방향 90도 회전`} title="+90°" onClick={() => setCurrent({ [axis]: normalizeAngle(current[axis] + 90) })}><RotateCw size={15} /></button></div>)}</div>
             <PrinterFilamentPicker printers={data.printers} printerId={printerId} onPrinterChange={setPrinterId} slotIndex={slotIndex} onSlotChange={setSlotIndex} />
-            <div className="field"><label htmlFor="notes">관리자 메모</label><textarea id="notes" className="textarea" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={"출력물의 목적과 용도, 관리자에게 전달할 내용을 적어주세요.\n목적이 불분명하거나 부적합하다고 판단될 경우 신청이 거부될 수 있습니다."} /></div>
+            <div className="field"><label htmlFor="notes">관리자 메모</label><textarea id="notes" className="textarea notes-prompt" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={"출력물의 목적과 용도, 관리자에게 전달할 내용을 적어주세요.\n목적이 불분명하거나 부적합하다고 판단될 경우 신청이 거부될 수 있습니다."} /></div>
             <button className={`button button-primary button-full ${busy ? "button-loading" : ""}`} disabled={busy || tooLarge} onClick={confirm}><Check size={16} /> {data.files.length}개 파일 출력 신청</button>
           </div>
         </aside>
@@ -583,6 +583,15 @@ function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => voi
   const sel = selected != null ? parts[selected] : null;
   const selMetrics = selected != null ? metrics[selected] : undefined;
 
+  // Type a target mm on an axis -> scale the part so that axis matches.
+  // selMetrics.size is the already-scaled AABB, so back out the current scale.
+  const setDimensionMm = (axis: "x" | "y" | "z", value: number) => {
+    if (selected == null || !sel || !selMetrics) return;
+    const extent = selMetrics.size[axis];
+    if (!Number.isFinite(value) || value <= 0 || extent <= 0.001) return;
+    patchTransform(selected, { scale: (value * sel.transform.scale) / extent });
+  };
+
   return (
     <div className="page">
       <header className="page-header">
@@ -643,11 +652,21 @@ function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => voi
             {sel && selected != null ? (
               <>
                 {selMetrics ? (
-                  <div className="dimension-row">
+                  <div className={invalid.has(selected) ? "dimension-row dimension-row-error" : "dimension-row"}>
                     {(["x", "y", "z"] as const).map((axis) => (
                       <label key={axis}>
                         <span>{axis.toUpperCase()}</span>
-                        <input type="text" readOnly value={selMetrics.size[axis].toFixed(1)} />
+                        {/* keyed on the transform so the field resets from the
+                            slider / rotation / a committed edit, but not while typing */}
+                        <input
+                          key={`${selected}:${sel.transform.scale}:${sel.transform.rotationX}:${sel.transform.rotationY}:${sel.transform.rotationZ}`}
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          defaultValue={selMetrics.size[axis].toFixed(1)}
+                          onBlur={(event) => setDimensionMm(axis, Number(event.target.value))}
+                          onKeyDown={(event) => { if (event.key === "Enter") (event.target as HTMLInputElement).blur(); }}
+                        />
                         <small>mm</small>
                       </label>
                     ))}
@@ -738,7 +757,7 @@ function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => voi
               <label htmlFor="plate-notes">관리자 메모</label>
               <textarea
                 id="plate-notes"
-                className="textarea"
+                className="textarea notes-prompt"
                 rows={3}
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
@@ -825,7 +844,7 @@ export default function UploadPage() {
           <div className="upload-path-title"><FileArchive size={22} /><div><h2>슬라이싱된 3MF</h2><p>Bambu Studio에서 내보낸 .gcode.3mf 파일을 그대로 제출합니다.</p></div></div>
           <FilePicker id="sliced-files" acceptAttribute=".gcode.3mf" accept={(file) => file.name.toLowerCase().endsWith(".gcode.3mf")} files={slicedFiles} onFiles={setSlicedFiles} title=".gcode.3mf 파일 선택 또는 드롭" hint="최대 100MB" />
           <PrinterFilamentPicker printers={printers} printerId={printerId} onPrinterChange={setPrinterId} slotIndex={slotIndex} onSlotChange={setSlotIndex} />
-          <div className="field"><label htmlFor="sliced-notes">관리자 메모</label><textarea id="sliced-notes" className="textarea" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={"출력물의 목적과 용도, 관리자에게 전달할 내용을 적어주세요.\n목적이 불분명하거나 부적합하다고 판단될 경우 신청이 거부될 수 있습니다."} /></div>
+          <div className="field"><label htmlFor="sliced-notes">관리자 메모</label><textarea id="sliced-notes" className="textarea notes-prompt" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={"출력물의 목적과 용도, 관리자에게 전달할 내용을 적어주세요.\n목적이 불분명하거나 부적합하다고 판단될 경우 신청이 거부될 수 있습니다."} /></div>
           <button className={`button button-primary button-full ${busy ? "button-loading" : ""}`} disabled={!slicedFiles.length || busy} onClick={submitSliced}><Check size={16} /> 출력 신청</button>
         </section>
       </div>
