@@ -135,16 +135,26 @@ def send_email(to: str, subject: str, html: str, text: str):
         smtp.send_message(msg)
 
 
-def send_print_done_email(to: str, user_name: str, job_filename: str):
+def send_print_done_email(to: str, user_name: str, job_filename: str, pickup_instructions: str = ""):
     subject = f"[HAFS PrintQueue] 출력 완료 - {job_filename}"
-    message = f"{user_name}님의 출력물이 준비되었습니다. D홀 3층 물리실에서 수령해 주세요."
+    message = f"{user_name}님의 출력물이 준비되었습니다."
+    detail_html = ""
+    if pickup_instructions:
+        safe_instructions = escape(pickup_instructions).replace("\n", "<br>")
+        detail_html = f"""
+              <div style="padding:16px;word-break:break-word;">
+                <span style="display:block;margin-bottom:4px;color:{_COLORS['muted']};font-size:12px;font-weight:700;">관리자 안내 및 수령 장소</span>
+                <span style="display:block;color:{_COLORS['ink_2']};font-size:14px;line-height:1.55;">{safe_instructions}</span>
+              </div>"""
     html = _render_email(
         page_title="출력 완료",
         heading="출력물이 준비되었습니다",
         message=message,
         job_filename=job_filename,
+        detail_html=detail_html,
     )
-    text = f"{user_name}님의 출력물이 준비되었습니다.\nD홀 3층 물리실에서 수령해 주세요.\n\n파일: {job_filename}\n내 작업 확인: {_jobs_url()}"
+    instructions_text = f"\n\n관리자 안내 및 수령 장소:\n{pickup_instructions}" if pickup_instructions else ""
+    text = f"{message}\n\n파일: {job_filename}{instructions_text}\n내 작업 확인: {_jobs_url()}"
     send_email(to, subject, html, text)
 
 

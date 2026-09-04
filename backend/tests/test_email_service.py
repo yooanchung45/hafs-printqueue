@@ -47,11 +47,22 @@ def test_done_email_contains_pickup_location(monkeypatch):
     sent = _capture(monkeypatch)
 
     email_service.send_print_done_email(
-        "student@hafs.hs.kr", "홍길동", "완성품.3mf"
+        "student@hafs.hs.kr", "홍길동", "완성품.3mf",
+        "도서관에서 수령해 주세요.\n<학생증> & 신청 내역을 보여 주세요.",
     )
 
-    assert "D홀 3층 물리실" in sent["html"]
-    assert "D홀 3층 물리실" in sent["text"]
+    assert "관리자 안내 및 수령 장소" in sent["html"]
+    assert "도서관에서 수령해 주세요.<br>&lt;학생증&gt; &amp; 신청 내역을 보여 주세요." in sent["html"]
+    assert "도서관에서 수령해 주세요.\n<학생증> & 신청 내역을 보여 주세요." in sent["text"]
+    assert "D홀 3층 물리실" not in sent["html"]
+    assert "D홀 3층 물리실" not in sent["text"]
+
+
+def test_done_email_without_instructions_has_no_fixed_location(monkeypatch):
+    sent = _capture(monkeypatch)
+    email_service.send_print_done_email("student@hafs.hs.kr", "홍길동", "완성품.3mf")
+    assert "D홀 3층 물리실" not in sent["html"]
+    assert "D홀 3층 물리실" not in sent["text"]
 
 
 def test_repeated_email_sections_receive_unique_refs():

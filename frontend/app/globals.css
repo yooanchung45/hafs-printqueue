@@ -506,6 +506,7 @@ summary.section-heading { cursor: pointer; }
 .transfer-toast strong, .transfer-toast span { display: block; }
 .transfer-toast span { color: var(--color-rule); font-size: var(--text-xs); }
 .transfer-toast .icon-button { color: var(--color-paper); justify-self: end; }
+.transfer-toast.completion-toast { grid-template-columns: minmax(0, 1fr) auto; width: fit-content; max-width: min(44rem, calc(100vw - var(--space-xl))); padding: var(--space-sm) var(--space-md); }
 .progress { background: var(--color-ink-2); border-radius: var(--radius-full); height: 0.375rem; overflow: hidden; }
 .progress span { background: var(--color-accent); height: 100%; transition: transform var(--dur-base) var(--ease-out); }
 .back-link { align-items: center; color: var(--color-muted); display: inline-flex; font-size: var(--text-xs); gap: var(--space-xs); margin-bottom: var(--space-sm); text-decoration: none; }
@@ -557,6 +558,11 @@ summary.section-heading { cursor: pointer; }
 .submission-success-icon { align-items: center; background: var(--color-success-soft); border-radius: var(--radius-full); color: var(--color-success); display: flex; flex: 0 0 auto; height: 2.25rem; justify-content: center; width: 2.25rem; }
 .submission-dialog-body h2 { font-size: var(--text-md); margin: 0 0 var(--space-2xs); overflow-wrap: anywhere; }
 .submission-dialog-body p { color: var(--color-ink-2); font-size: var(--text-sm); margin: 0; }
+.job-decision-dialog { height: fit-content; }
+.job-decision-dialog .modal-header { padding: var(--space-sm) var(--space-md); }
+.job-decision-dialog .submission-dialog-body { gap: var(--space-sm); }
+.job-decision-dialog .textarea { field-sizing: content; min-height: 4.5rem; max-height: 12rem; }
+.job-decision-dialog .form-actions { justify-content: flex-end; margin-top: 0; }
 
 .dashboard-lead { border-bottom: var(--rule-thin) solid var(--color-rule-2); margin-bottom: var(--space-xl); padding-bottom: var(--space-xl); }
 .dashboard-lead h1 { font-size: var(--text-2xl); letter-spacing: -0.045em; line-height: 1.1; margin-bottom: var(--space-lg); }

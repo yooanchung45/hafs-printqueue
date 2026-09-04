@@ -173,6 +173,7 @@ function SubmissionSuccessDialog({ onContinue }: { onContinue: () => void }) {
           <div>
             <h2 id="submission-success-title">출력 신청이 완료되었습니다</h2>
             <p>관리자가 신청을 승인하면 학교 이메일로 안내를 보내드립니다.</p>
+            <p>출력 승인/거부, 완료 시 이메일로 안내되니 메일함을 수시로 확인해주세요.</p>
           </div>
         </div>
         <button ref={continueRef} className="button button-primary button-full" onClick={onContinue}>내 작업에서 확인</button>
@@ -353,7 +354,7 @@ function StlWorkbench({ data, onBack }: { data: PreviewData; onBack: () => void 
             <div className="preset-row">{[25, 50, 75, 100].map((percent) => <button key={percent} className="button button-secondary button-small" onClick={() => setCurrent({ scale: percent / 100 })}>{percent}%</button>)}</div>
             <div className="rotation-grid">{(["rotationX", "rotationY", "rotationZ"] as const).map((axis) => <div key={axis}><span>{axis.slice(-1)}</span><button className="button button-secondary button-small" aria-label={`${axis.slice(-1)}축 반시계 방향 90도 회전`} title="−90°" onClick={() => setCurrent({ [axis]: normalizeAngle(current[axis] - 90) })}><RotateCcw size={15} /></button><AngleDial value={current[axis]} onChange={(deg) => setCurrent({ [axis]: deg })} /><button className="button button-secondary button-small" aria-label={`${axis.slice(-1)}축 시계 방향 90도 회전`} title="+90°" onClick={() => setCurrent({ [axis]: normalizeAngle(current[axis] + 90) })}><RotateCw size={15} /></button></div>)}</div>
             <PrinterFilamentPicker printers={data.printers} printerId={printerId} onPrinterChange={setPrinterId} slotIndex={slotIndex} onSlotChange={setSlotIndex} />
-            <div className="field"><label htmlFor="notes">관리자 메모</label><textarea id="notes" className="textarea" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="출력 시 참고할 내용 (선택)" /></div>
+            <div className="field"><label htmlFor="notes">관리자 메모</label><textarea id="notes" className="textarea" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={"출력물의 목적과 용도, 관리자에게 전달할 내용을 적어주세요.\n목적이 불분명하거나 부적합하다고 판단될 경우 신청이 거부될 수 있습니다."} /></div>
             <button className={`button button-primary button-full ${busy ? "button-loading" : ""}`} disabled={busy || tooLarge} onClick={confirm}><Check size={16} /> {data.files.length}개 파일 출력 신청</button>
           </div>
         </aside>
@@ -741,7 +742,7 @@ function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => voi
                 rows={3}
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
-                placeholder="출력 시 참고할 내용 (선택)"
+                placeholder={"출력물의 목적과 용도, 관리자에게 전달할 내용을 적어주세요.\n목적이 불분명하거나 부적합하다고 판단될 경우 신청이 거부될 수 있습니다."}
               />
             </div>
             <button
@@ -817,14 +818,14 @@ export default function UploadPage() {
         <section className="card upload-path">
           <div className="upload-path-title"><Box size={22} /><div><h2>STL 파일</h2><p>브라우저에서 크기와 회전을 확인한 뒤 서버에서 슬라이싱합니다.</p></div></div>
           <FilePicker id="stl-files" acceptAttribute=".stl" accept={(file) => file.name.toLowerCase().endsWith(".stl")} files={stlFiles} onFiles={setStlFiles} title="STL 파일 선택 또는 드롭" hint="최대 100MB" />
-          <div className="notice upload-guidance">받침(서포트)이 필요한 모델만 Bambu Studio로 준비하세요. 나머지는 이대로 올리면 됩니다.</div>
+          <div className="notice upload-guidance">서포트가 필요하거나 복잡한 모델은 Bambu Studio로 슬라이싱하세요.</div>
           <button className="button button-primary button-full" disabled={!stlFiles.length || busy} onClick={openStlWorkbench}><Box size={16} /> 3D 미리보기</button>
         </section>
         <section className="card upload-path">
           <div className="upload-path-title"><FileArchive size={22} /><div><h2>슬라이싱된 3MF</h2><p>Bambu Studio에서 내보낸 .gcode.3mf 파일을 그대로 제출합니다.</p></div></div>
           <FilePicker id="sliced-files" acceptAttribute=".gcode.3mf" accept={(file) => file.name.toLowerCase().endsWith(".gcode.3mf")} files={slicedFiles} onFiles={setSlicedFiles} title=".gcode.3mf 파일 선택 또는 드롭" hint="최대 100MB" />
           <PrinterFilamentPicker printers={printers} printerId={printerId} onPrinterChange={setPrinterId} slotIndex={slotIndex} onSlotChange={setSlotIndex} />
-          <div className="field"><label htmlFor="sliced-notes">관리자 메모</label><textarea id="sliced-notes" className="textarea" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="출력 시 참고할 내용 (선택)" /></div>
+          <div className="field"><label htmlFor="sliced-notes">관리자 메모</label><textarea id="sliced-notes" className="textarea" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={"출력물의 목적과 용도, 관리자에게 전달할 내용을 적어주세요.\n목적이 불분명하거나 부적합하다고 판단될 경우 신청이 거부될 수 있습니다."} /></div>
           <button className={`button button-primary button-full ${busy ? "button-loading" : ""}`} disabled={!slicedFiles.length || busy} onClick={submitSliced}><Check size={16} /> 출력 신청</button>
         </section>
       </div>

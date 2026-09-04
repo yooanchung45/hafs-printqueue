@@ -458,6 +458,7 @@ async def reject_job(
     await db.commit()
     discard_job_files(job.file_path)  # rejected — keep the row, drop the bytes
 
+    email_sent = False
     if job_user:
         try:
             loop = asyncio.get_running_loop()
@@ -465,10 +466,11 @@ async def reject_job(
                 None, send_rejected_email,
                 job_user.email, job_user.name, job.filename, reason,
             )
+            email_sent = True
         except Exception as e:
             logger.warning("거부 이메일 발송 실패 %s: %s", job_user.email, e)
 
-    return {"ok": True, "job": job_dict(job, owner=job_user)}
+    return {"ok": True, "email_sent": email_sent, "job": job_dict(job, owner=job_user)}
 
 
 @router.post("/jobs/{job_id}/reassign")
@@ -717,10 +719,14 @@ async def start_job(
 @router.post("/jobs/{job_id}/complete")
 async def complete_job(
     job_id: int,
+    pickup_instructions: str = Form(..., max_length=2000),
     user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """관리자가 베드 비움을 확인한 뒤 작업을 최종 완료하고 학생에게 알림."""
+    pickup_instructions = pickup_instructions.strip()
+    if not pickup_instructions:
+        raise HTTPException(422, "관리자 안내 및 수령 장소를 입력해 주세요")
     job = await _get_job_or_404(db, job_id)
     if job.status != JobStatus.AWAITING_CLEAR:
         raise HTTPException(409, "베드 정리 대기 중인 작업이 아닙니다")
@@ -750,17 +756,20 @@ async def complete_job(
     # ready for pickup, so it is sent only on this explicit admin action.
     job_user_result = await db.execute(select(User).where(User.id == job.user_id))
     job_user = job_user_result.scalar_one_or_none()
+    email_sent = False
     if job_user is not None:
         try:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None, send_print_done_email,
                 job_user.email, job_user.name, job.filename,
+                pickup_instructions,
             )
+            email_sent = True
         except Exception as e:
             logger.warning("완료 이메일 발송 실패 %s: %s", job_user.email, e)
 
-    return {"ok": True, "job": job_dict(job, owner=job_user, printer=_printer)}
+    return {"ok": True, "email_sent": email_sent, "job": job_dict(job, owner=job_user, printer=_printer)}
 
 
 @router.post("/jobs/{job_id}/fail")
