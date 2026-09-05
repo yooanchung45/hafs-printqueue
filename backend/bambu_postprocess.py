@@ -277,12 +277,17 @@ G92 E0
 # that back-left corner won't get ejected as a result -- an acceptable trade
 # given slicers rarely place parts hard against a bed's exclusion corner.
 #
-# Only safe once the part has actually let go of the plate -- we wait for
-# both the bed and nozzle to cool below their release/touch thresholds first.
-# Tune the constants below against a real, supervised test run before
-# trusting this unattended: bed release temp/time varies by material, plate,
-# and ambient temp, and a still-warm part can smear or re-fuse instead of
-# sliding.
+# Only safe once the part has actually let go of the plate. We used to make
+# the *firmware* wait for that via `M109 R{temp}` / `M190 R{temp}` (the
+# standard Marlin "wait through cooldown" form), but Bambu's firmware is a
+# proprietary fork and the official bambulabs_api library never once uses the
+# R form -- only S (set-and-wait-while-heating). A real test got stuck
+# partway through the stroke with temps unchanged, consistent with the
+# firmware not handling R the way we assumed and the block choking on it.
+# So the cooldown check now happens in printer_client.eject_bed() instead,
+# using this app's own working status poll (PrinterClient.get_status())
+# before ever sending gcode -- code we already know behaves correctly on
+# this hardware, rather than an unverified firmware feature.
 _EJECT_BED_RELEASE_C = 40      # PLA/PETG typically let go of PEI by here
 _EJECT_NOZZLE_TOUCH_C = 60     # cool enough that a graze won't smear the part
 _EJECT_RAIL_Z = 5.0            # sweep height above the plate (mm) -- ~1mm
@@ -293,11 +298,10 @@ _EJECT_Y_BACK = 215.0          # sweep end -- kept well clear of the ~254
                                # brush corner rather than measured exactly
 
 def _eject_gcode(z_travel: float) -> str:
-    """Single low-Z stroke that drags a released part off the front edge."""
+    """Single low-Z stroke that drags a released part off the front edge.
+    Caller is responsible for confirming the bed/nozzle have cooled first."""
     lines = [
         ";===== bed eject (HAFS PrintQueue admin command) =====",
-        "M109 R{}".format(_EJECT_NOZZLE_TOUCH_C),
-        "M190 R{}".format(_EJECT_BED_RELEASE_C),
         "G90",
         f"G1 Z{z_travel} F1200",
         f"G1 X128 Y{_EJECT_Y_FRONT} F9000",
