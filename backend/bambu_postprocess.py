@@ -322,7 +322,13 @@ def _eject_gcode(z_travel: float) -> str:
         "M17 X0.65 Y1.2 Z0.6",
         "G90",
         f"G1 Z{z_travel} F1200",
-        f"G1 X128 Y{_EJECT_Y_APPROACH} F9000",
+        # X-48 -- the same off-to-the-side park position this printer's own
+        # end gcode already uses (G1 X-48 Y180) -- keeps the actual nozzle
+        # assembly clear of the bed entirely during the low-Z pass. A live
+        # test with X centered (128) had the part hit the nozzle directly
+        # instead of the passive gantry structure -- exactly backwards from
+        # the technique this whole sweep is based on.
+        f"G1 X-48 Y{_EJECT_Y_APPROACH} F9000",
         f"G1 Z{_EJECT_RAIL_Z} F600",
         f"G1 Y{_EJECT_Y_PUSH} F3000",
         f"G1 Z{z_travel} F1200",
