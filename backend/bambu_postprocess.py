@@ -299,9 +299,18 @@ G92 E0
 # this hardware, rather than an unverified firmware feature.
 _EJECT_BED_RELEASE_C = 40      # PLA/PETG typically let go of PEI by here
 _EJECT_NOZZLE_TOUCH_C = 60     # cool enough that a graze won't smear the part
-_EJECT_RAIL_Z = 5.0            # sweep height above the plate (mm) -- ~1mm
-                               # margin above the ~4mm mechanical floor so the
-                               # gantry doesn't grind the hard stop every print
+_EJECT_RAIL_Z = -4.0           # UNVERIFIED on real hardware -- gcode Z is
+                               # nozzle-referenced (Z0 = nozzle at bed), and
+                               # the nozzle sits *below* the bed surface at
+                               # the rail's true mechanical floor (confirmed
+                               # by hand-testing with the nozzle parked
+                               # aside), so the real floor is negative, not
+                               # +5 like the first estimate assumed. -4 is a
+                               # reasoned next guess, not a confirmed value --
+                               # watch/listen closely on the next live test:
+                               # if the gantry grinds or stalls instead of
+                               # smoothly reaching this height, it's too low
+                               # and needs to come back up.
 _EJECT_Y_APPROACH = 215.0      # reposition here first, at safe height --
                                # kept well clear of the ~254 brush corner
 _EJECT_Y_PUSH = 5.0            # sweep ends here -- this is what actually
