@@ -331,6 +331,8 @@ def _eject_gcode(z_travel: float) -> str:
         f"G1 X-48 Y{_EJECT_Y_APPROACH} F9000",
         f"G1 Z{_EJECT_RAIL_Z} F600",
         f"G1 Y{_EJECT_Y_PUSH} F3000",
+        "G4 P1000",       # let a just-freed part actually fall/settle before
+                          # the head lifts back out of the way
         f"G1 Z{z_travel} F1200",
     ]
     return "\n".join(lines) + "\n"
