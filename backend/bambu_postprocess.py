@@ -302,6 +302,13 @@ def _eject_gcode(z_travel: float) -> str:
     Caller is responsible for confirming the bed/nozzle have cooled first."""
     lines = [
         ";===== bed eject (HAFS PrintQueue admin command) =====",
+        # Every print's own end gcode disables all steppers (M18 X Y Z) once
+        # idle, and this can run long after that -- without re-enabling them
+        # first, X/Y silently don't move at all (no error, just no motion).
+        # Reusing the exact enable line from this printer's own start gcode
+        # rather than a bare M17, since Bambu's M17 takes per-axis current
+        # levels here, not a plain Marlin-style on/off.
+        "M17 X0.65 Y1.2 Z0.6",
         "G90",
         f"G1 Z{z_travel} F1200",
         f"G1 X128 Y{_EJECT_Y_FRONT} F9000",
