@@ -328,9 +328,20 @@ def _eject_gcode(z_travel: float) -> str:
         # test with X centered (128) had the part hit the nozzle directly
         # instead of the passive gantry structure -- exactly backwards from
         # the technique this whole sweep is based on.
-        f"G1 X-48 Y{_EJECT_Y_APPROACH} F9000",
+        # TEMPORARY TEST -- reversed from the normal front-push direction.
+        # Printer 2 (but not printer 1, same code) keeps stalling before
+        # reaching the back travel limit (Y_PUSH), even with the nozzle now
+        # parked clear -- possibly something physically obstructing that
+        # specific unit's rear travel (wall, cable, object placed too
+        # close). This swap approaches from Y_PUSH and pushes toward
+        # Y_APPROACH instead, to see whether the opposite direction clears
+        # fully on printer 2. NOTE: this is shared code -- both printers
+        # get this reversed direction, including printer 1, which was
+        # confirmed working in the forward direction. Revert once this
+        # experiment has an answer.
+        f"G1 X-48 Y{_EJECT_Y_PUSH} F9000",
         f"G1 Z{_EJECT_RAIL_Z} F600",
-        f"G1 Y{_EJECT_Y_PUSH} F3000",
+        f"G1 Y{_EJECT_Y_APPROACH} F3000",
         "G4 P1000",       # let a just-freed part actually fall/settle before
                           # the head lifts back out of the way
         f"G1 Z{z_travel} F1200",
