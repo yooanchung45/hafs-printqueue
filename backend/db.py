@@ -73,6 +73,18 @@ async def init_db():
                     "failure_acknowledged BOOLEAN NOT NULL DEFAULT 0"
                 )
             )
+        printer_columns = await conn.run_sync(
+            lambda sync_conn: {
+                column["name"] for column in inspect(sync_conn).get_columns("printers")
+            }
+        )
+        if "eject_reversed" not in printer_columns:
+            await conn.execute(
+                text(
+                    "ALTER TABLE printers ADD COLUMN "
+                    "eject_reversed BOOLEAN NOT NULL DEFAULT 0"
+                )
+            )
 
 async def seed_printers():
     """프린터가 하나도 없으면 기본 2대 등록 (개발용)."""

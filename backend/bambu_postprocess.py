@@ -308,9 +308,22 @@ _EJECT_Y_PUSH = 5.0            # sweep ends here -- this is what actually
                                # drags the part toward the front (verified
                                # by watching the bed move on real hardware)
 
-def _eject_gcode(z_travel: float) -> str:
-    """Single low-Z stroke that drags a released part off the front edge.
-    Caller is responsible for confirming the bed/nozzle have cooled first."""
+def _eject_gcode(z_travel: float, reversed_direction: bool = False) -> str:
+    """Single low-Z stroke that drags a released part off the front edge
+    (or the back, if `reversed_direction`). Caller is responsible for
+    confirming the bed/nozzle have cooled first.
+
+    Some units have a physical obstruction (wall, cable, ...) behind them
+    that blocks the bed's full rear travel -- on those, the normal
+    front-push direction stalls before completing, so `reversed_direction`
+    swaps which end of the travel is the approach vs. the actual push.
+    This is a per-printer setting (Printer.eject_reversed), not global --
+    two units running identical code have been observed needing opposite
+    directions."""
+    approach_y, push_y = (
+        (_EJECT_Y_PUSH, _EJECT_Y_APPROACH) if reversed_direction
+        else (_EJECT_Y_APPROACH, _EJECT_Y_PUSH)
+    )
     lines = [
         ";===== bed eject (HAFS PrintQueue admin command) =====",
         # Every print's own end gcode disables all steppers (M18 X Y Z) once
@@ -328,20 +341,9 @@ def _eject_gcode(z_travel: float) -> str:
         # test with X centered (128) had the part hit the nozzle directly
         # instead of the passive gantry structure -- exactly backwards from
         # the technique this whole sweep is based on.
-        # TEMPORARY TEST -- reversed from the normal front-push direction.
-        # Printer 2 (but not printer 1, same code) keeps stalling before
-        # reaching the back travel limit (Y_PUSH), even with the nozzle now
-        # parked clear -- possibly something physically obstructing that
-        # specific unit's rear travel (wall, cable, object placed too
-        # close). This swap approaches from Y_PUSH and pushes toward
-        # Y_APPROACH instead, to see whether the opposite direction clears
-        # fully on printer 2. NOTE: this is shared code -- both printers
-        # get this reversed direction, including printer 1, which was
-        # confirmed working in the forward direction. Revert once this
-        # experiment has an answer.
-        f"G1 X-48 Y{_EJECT_Y_PUSH} F9000",
+        f"G1 X-48 Y{approach_y} F9000",
         f"G1 Z{_EJECT_RAIL_Z} F600",
-        f"G1 Y{_EJECT_Y_APPROACH} F3000",
+        f"G1 Y{push_y} F3000",
         "G4 P1000",       # let a just-freed part actually fall/settle before
                           # the head lifts back out of the way
         f"G1 Z{z_travel} F1200",

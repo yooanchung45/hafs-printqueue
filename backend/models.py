@@ -66,6 +66,10 @@ class Printer(Base):
     progress = Column(Integer, nullable=True)
     nozzle_temp = Column(Float, nullable=True)
     bed_temp = Column(Float, nullable=True)
+    # Some units have a physical obstruction (wall, cable, ...) behind them
+    # blocking the bed's full rear travel, so the eject sweep needs to push
+    # the opposite way on those -- see printer_client.eject_bed.
+    eject_reversed = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, server_default=func.now())
 
     jobs = relationship("Job", back_populates="printer", foreign_keys="Job.printer_id")

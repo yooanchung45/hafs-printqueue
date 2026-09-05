@@ -1127,6 +1127,7 @@ async def edit_printer(
     serial: str = Form(...),
     ip: str = Form(...),
     access_code: str = Form(...),
+    eject_reversed: int = Form(0),
 ):
     """기존 프린터 정보 수정."""
     result = await db.execute(select(Printer).where(Printer.id == printer_id))
@@ -1137,6 +1138,7 @@ async def edit_printer(
     printer.serial = serial.strip()
     printer.ip = ip.strip()
     printer.access_code = access_code.strip()
+    printer.eject_reversed = bool(eject_reversed)
     await db.commit()
     return {"ok": True, "printer": printer_admin_dict(printer)}
 
@@ -1193,7 +1195,9 @@ async def eject_printer_bed(
     client = PrinterClient(ip=printer.ip, access_code=printer.access_code,
                            serial=printer.serial, name=printer.name)
     loop = asyncio.get_running_loop()
-    ok, message = await loop.run_in_executor(None, client.eject_bed)
+    ok, message = await loop.run_in_executor(
+        None, client.eject_bed, printer.eject_reversed
+    )
     if not ok:
         raise HTTPException(502, message)
     return {"ok": True, "message": message}

@@ -37,6 +37,7 @@ export interface Printer {
   ip: string | null;
   access_code?: string | null;
   has_access_code: boolean;
+  eject_reversed?: boolean;
   status: PrinterStatus;
   current_job_id: number | null;
   progress: number | null;
