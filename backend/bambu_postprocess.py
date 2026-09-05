@@ -256,26 +256,35 @@ G92 E0
 # via the admin "베드 밀어내기" button (see printer_client.eject_bed), so an
 # admin explicitly authorizes each sweep after watching the bed.
 # The A1's X-gantry (which carries the toolhead) never moves in Y -- only the
-# bed does. So this sends the bed forward first (Y_FRONT), lowers the rail,
-# then drives the bed backward in one continuous stroke: the part gets
-# caught at the rail's fixed position while the bed's own front edge retreats
-# out from under it, so it drops off the bed's front edge as that edge
-# passes beneath -- landing at the front of the machine, not the back. Full
-# X coverage comes for free because the rail spans the whole width, unlike a
-# narrow nozzle-only sweep which would need multiple lanes.
+# bed does. This repositions to Y_APPROACH first (Z still high, clear of
+# anything), lowers the rail, then sweeps down to Y_PUSH in one continuous
+# stroke: the part gets caught at the rail's fixed position while the bed
+# keeps moving underneath it, so it drops off as the bed's surface runs out
+# from under it. Full X coverage comes for free because the rail spans the
+# whole width, unlike a narrow nozzle-only sweep which would need multiple
+# lanes.
+#
+# IMPORTANT: a live test showed gcode Y is the *opposite* of what we assumed
+# -- low Y (5) is physically the BACK of the machine, high Y (215) is the
+# FRONT, confirmed by directly watching the bed move. The sweep therefore
+# has to run from high Y down to low Y to actually eject toward the front;
+# doing it the other way round (as an earlier version of this code did)
+# drags the part toward the back instead. Y_APPROACH/Y_PUSH are named for
+# their role in the stroke, not for which physical side they're on --
+# don't rename them back to *_FRONT/*_BACK without re-verifying on hardware.
 #
 # Constraints, found by physically testing an A1: lowering the gantry as far
 # as it mechanically goes still leaves the rail ~4mm above the plate (a hard
 # mechanical stop, not a calibration value) -- parts shorter than that won't
-# be caught. And the stroke's back limit has to stay clear of the nozzle-
+# be caught. And the approach position has to stay clear of the nozzle-
 # cleaning brush mounted on the bed's back-left corner -- the printer's own
 # startup gcode uses Y254 for its wipe move, which is almost certainly that
 # brush's position. Since the rail is full-width, it doesn't matter that the
 # sweep keeps the toolhead centered in X -- the rail still passes over that
-# corner's Y position regardless. _EJECT_Y_BACK is kept well short of 254 as
-# a safety margin rather than an exact measurement; anything printed right in
-# that back-left corner won't get ejected as a result -- an acceptable trade
-# given slicers rarely place parts hard against a bed's exclusion corner.
+# corner's Y position regardless. Y_APPROACH is kept well short of 254 as a
+# safety margin rather than an exact measurement; anything printed right in
+# that corner won't get ejected as a result -- an acceptable trade given
+# slicers rarely place parts hard against a bed's exclusion corner.
 #
 # Only safe once the part has actually let go of the plate. We used to make
 # the *firmware* wait for that via `M109 R{temp}` / `M190 R{temp}` (the
@@ -293,9 +302,11 @@ _EJECT_NOZZLE_TOUCH_C = 60     # cool enough that a graze won't smear the part
 _EJECT_RAIL_Z = 5.0            # sweep height above the plate (mm) -- ~1mm
                                # margin above the ~4mm mechanical floor so the
                                # gantry doesn't grind the hard stop every print
-_EJECT_Y_FRONT = 5.0           # sweep start, near the front travel limit
-_EJECT_Y_BACK = 215.0          # sweep end -- kept well clear of the ~254
-                               # brush corner rather than measured exactly
+_EJECT_Y_APPROACH = 215.0      # reposition here first, at safe height --
+                               # kept well clear of the ~254 brush corner
+_EJECT_Y_PUSH = 5.0            # sweep ends here -- this is what actually
+                               # drags the part toward the front (verified
+                               # by watching the bed move on real hardware)
 
 def _eject_gcode(z_travel: float) -> str:
     """Single low-Z stroke that drags a released part off the front edge.
@@ -311,9 +322,9 @@ def _eject_gcode(z_travel: float) -> str:
         "M17 X0.65 Y1.2 Z0.6",
         "G90",
         f"G1 Z{z_travel} F1200",
-        f"G1 X128 Y{_EJECT_Y_FRONT} F9000",
+        f"G1 X128 Y{_EJECT_Y_APPROACH} F9000",
         f"G1 Z{_EJECT_RAIL_Z} F600",
-        f"G1 Y{_EJECT_Y_BACK} F3000",
+        f"G1 Y{_EJECT_Y_PUSH} F3000",
         f"G1 Z{z_travel} F1200",
     ]
     return "\n".join(lines) + "\n"
