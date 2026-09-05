@@ -159,6 +159,16 @@ class PrinterSession:
             "print": {"sequence_id": str(time.time_ns()), "command": "stop"}
         })
 
+    def send_gcode(self, gcode: str):
+        """Run raw gcode lines on an idle printer (LAN-mode gcode_line command)."""
+        self.publish({
+            "print": {
+                "sequence_id": str(time.time_ns()),
+                "command": "gcode_line",
+                "param": gcode,
+            }
+        })
+
     def start_print(self, filename: str, ams_slot: int):
         """Start an uploaded 3MF using the already-connected MQTT session."""
         self.publish({

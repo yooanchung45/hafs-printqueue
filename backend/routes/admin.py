@@ -1175,6 +1175,30 @@ async def sync_printers(
     return {"ok": True}
 
 
+@router.post("/printers/{printer_id}/eject-bed")
+async def eject_printer_bed(
+    printer_id: int,
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """수동 테스트용: 지금 베드 위에 있는 것을 미는 스윕을 즉시 전송한다.
+    postprocess에 구운 스윕과 달리 아직 출력 중/직후인 프린터에 바로 명령을
+    보내는 것이므로, 관리자가 프린터를 직접 보면서 실행해야 한다."""
+    result = await db.execute(select(Printer).where(Printer.id == printer_id))
+    printer = result.scalar_one_or_none()
+    if printer is None:
+        raise HTTPException(404, "프린터를 찾을 수 없습니다")
+    if not (printer.ip and printer.access_code and printer.serial):
+        raise HTTPException(409, "프린터 연결 정보가 없습니다")
+    client = PrinterClient(ip=printer.ip, access_code=printer.access_code,
+                           serial=printer.serial, name=printer.name)
+    loop = asyncio.get_running_loop()
+    ok, message = await loop.run_in_executor(None, client.eject_bed)
+    if not ok:
+        raise HTTPException(502, message)
+    return {"ok": True, "message": message}
+
+
 @router.post("/printers/{printer_id}/light")
 async def set_printer_light(
     printer_id: int,

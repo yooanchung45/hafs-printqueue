@@ -98,6 +98,19 @@ class PrinterClient:
             logger.warning("[%s] 조명 제어 실패: %s", self.name, e)
             return False, f"조명 오류: {e}"
 
+    def eject_bed(self):
+        """수동 테스트용: postprocess 파이프라인의 베드 비움 스윕을 지금 즉시 전송한다.
+        해당 작업의 실제 출력 높이를 모르므로 여유 있는 고정 이동 높이(180mm)를 쓴다."""
+        if self.is_mock:
+            return True, "[Mock] 베드 비움 스윕 전송됨"
+        try:
+            from bambu_postprocess import _eject_gcode
+            self._gateway_session().send_gcode(_eject_gcode(180.0))
+            return True, "베드 비움 스윕을 전송했습니다"
+        except Exception as e:
+            logger.warning("[%s] 베드 비움 실패: %s", self.name, e)
+            return False, f"베드 비움 오류: {e}"
+
     def _mock_status(self):
         return PrinterStatusInfo(online=False, state="OFFLINE", slots=[
             SlotInfo(0, "PLA", "#FFFFFF", "흰색", 80, False),
