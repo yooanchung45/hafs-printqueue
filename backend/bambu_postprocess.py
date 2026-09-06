@@ -299,24 +299,27 @@ G92 E0
 # this hardware, rather than an unverified firmware feature.
 _EJECT_BED_RELEASE_C = 40      # PLA/PETG typically let go of PEI by here
 _EJECT_NOZZLE_TOUCH_C = 60     # cool enough that a graze won't smear the part
-_EJECT_RAIL_Z = -6.0           # -4 tested clean on real hardware (smooth,
-                               # no grinding/stall), so the true mechanical
-                               # floor is at or below that. Stepping down
-                               # incrementally rather than guessing far in
-                               # one jump -- -6 is the next value to verify.
-                               # Same rule as before: watch/listen closely;
-                               # any grinding or stall means back off to the
-                               # last value that was confirmed smooth.
+_EJECT_RAIL_Z = -6.0           # Confirmed clean (smooth, no grinding/stall)
+                               # on real hardware. Further negative values
+                               # (-15) showed no additional travel at all --
+                               # Bambu's firmware appears to clamp Z to a
+                               # software floor somewhere between -6 and -15,
+                               # so going more negative doesn't help. This
+                               # floor sits above a 1cm-tall test print (it
+                               # wasn't caught) -- the rail technique simply
+                               # cannot reach short/medium prints; that's
+                               # what _eject_gcode_nozzle is for.
 _EJECT_Y_APPROACH = 215.0      # reposition here first, at safe height --
                                # kept well clear of the ~254 brush corner
 _EJECT_Y_PUSH = 5.0            # sweep ends here -- this is what actually
                                # drags the part toward the front (verified
                                # by watching the bed move on real hardware)
 
-def _eject_gcode(z_travel: float, reversed_direction: bool = False) -> str:
+def _eject_gcode_rail(z_travel: float, reversed_direction: bool = False) -> str:
     """Single low-Z stroke that drags a released part off the front edge
-    (or the back, if `reversed_direction`). Caller is responsible for
-    confirming the bed/nozzle have cooled first.
+    (or the back, if `reversed_direction`), using the passive X-gantry rail
+    as a full-width catcher with the nozzle parked safely aside. Caller is
+    responsible for confirming the bed/nozzle have cooled first.
 
     Some units have a physical obstruction (wall, cable, ...) behind them
     that blocks the bed's full rear travel -- on those, the normal
@@ -324,13 +327,17 @@ def _eject_gcode(z_travel: float, reversed_direction: bool = False) -> str:
     swaps which end of the travel is the approach vs. the actual push.
     This is a per-printer setting (Printer.eject_reversed), not global --
     two units running identical code have been observed needing opposite
-    directions."""
+    directions.
+
+    Cannot reach short prints (Bambu's firmware clamps how low Z can go,
+    well above where a 1cm print's top surface sits) -- for those, use
+    _eject_gcode_nozzle instead (Printer.eject_use_nozzle)."""
     approach_y, push_y = (
         (_EJECT_Y_PUSH, _EJECT_Y_APPROACH) if reversed_direction
         else (_EJECT_Y_APPROACH, _EJECT_Y_PUSH)
     )
     lines = [
-        ";===== bed eject (HAFS PrintQueue admin command) =====",
+        ";===== bed eject -- rail technique (HAFS PrintQueue admin command) =====",
         # Every print's own end gcode disables all steppers (M18 X Y Z) once
         # idle, and this can run long after that -- without re-enabling them
         # first, X/Y silently don't move at all (no error, just no motion).
@@ -353,6 +360,46 @@ def _eject_gcode(z_travel: float, reversed_direction: bool = False) -> str:
                           # the head lifts back out of the way
         f"G1 Z{z_travel} F1200",
     ]
+    return "\n".join(lines) + "\n"
+
+
+# ── Bed eject: nozzle technique -- multi-lane sweep for short prints ───────
+# The rail technique above can't get low enough (firmware-clamped Z floor)
+# to catch anything shorter than a few cm. The nozzle tip itself can get
+# much closer to the plate (down near true Z0, nozzle-at-bed), at the cost
+# of two real risks the rail technique was specifically built to avoid:
+# the fragile nozzle/hotend assembly is what makes contact with the part
+# (not a passive structural rail), and since the nozzle only covers its own
+# X position rather than the rail's full width, this needs several lanes
+# across X -- leaving gaps between lanes where a part could be missed.
+# Only enable this per-printer (Printer.eject_use_nozzle) when the rail
+# technique's height floor is the actual blocker for that printer's jobs.
+_EJECT_NOZZLE_Z = 2.0          # height above the plate for the nozzle tip --
+                               # close enough to catch nearly any real print
+                               # without the nozzle scraping the plate itself
+_EJECT_NOZZLE_LANE_XS = (36.0, 96.0, 156.0, 216.0)   # left -> right across
+                                                      # the 256mm bed width
+
+def _eject_gcode_nozzle(z_travel: float, reversed_direction: bool = False) -> str:
+    """Multi-lane low-Z sweep using the nozzle tip directly, for prints too
+    short for the rail technique to reach. Caller is responsible for
+    confirming the bed/nozzle have cooled first."""
+    approach_y, push_y = (
+        (_EJECT_Y_PUSH, _EJECT_Y_APPROACH) if reversed_direction
+        else (_EJECT_Y_APPROACH, _EJECT_Y_PUSH)
+    )
+    lines = [
+        ";===== bed eject -- nozzle technique (HAFS PrintQueue admin command) =====",
+        "M17 X0.65 Y1.2 Z0.6",
+        "G90",
+    ]
+    for x in _EJECT_NOZZLE_LANE_XS:
+        lines.append(f"G1 Z{z_travel} F1200")
+        lines.append(f"G1 X{x} Y{approach_y} F9000")
+        lines.append(f"G1 Z{_EJECT_NOZZLE_Z} F600")
+        lines.append(f"G1 Y{push_y} F3000")
+    lines.append("G4 P1000")
+    lines.append(f"G1 Z{z_travel} F1200")
     return "\n".join(lines) + "\n"
 
 

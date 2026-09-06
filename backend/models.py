@@ -70,6 +70,10 @@ class Printer(Base):
     # blocking the bed's full rear travel, so the eject sweep needs to push
     # the opposite way on those -- see printer_client.eject_bed.
     eject_reversed = Column(Boolean, nullable=False, default=False)
+    # Rail technique can't reach short prints (firmware-clamped Z floor);
+    # nozzle technique reaches lower but risks the nozzle itself touching
+    # the part instead of a passive structural rail.
+    eject_use_nozzle = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, server_default=func.now())
 
     jobs = relationship("Job", back_populates="printer", foreign_keys="Job.printer_id")

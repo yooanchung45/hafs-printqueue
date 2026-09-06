@@ -55,6 +55,7 @@ def printer_admin_dict(printer, slots=None) -> dict[str, Any]:
     payload = printer_dict(printer, slots)
     payload["access_code"] = printer.access_code
     payload["eject_reversed"] = bool(printer.eject_reversed)
+    payload["eject_use_nozzle"] = bool(printer.eject_use_nozzle)
     return payload
 
 

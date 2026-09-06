@@ -85,6 +85,13 @@ async def init_db():
                     "eject_reversed BOOLEAN NOT NULL DEFAULT 0"
                 )
             )
+        if "eject_use_nozzle" not in printer_columns:
+            await conn.execute(
+                text(
+                    "ALTER TABLE printers ADD COLUMN "
+                    "eject_use_nozzle BOOLEAN NOT NULL DEFAULT 0"
+                )
+            )
 
 async def seed_printers():
     """프린터가 하나도 없으면 기본 2대 등록 (개발용)."""

@@ -98,19 +98,23 @@ class PrinterClient:
             logger.warning("[%s] 조명 제어 실패: %s", self.name, e)
             return False, f"조명 오류: {e}"
 
-    def eject_bed(self, reversed_direction: bool = False):
+    def eject_bed(self, reversed_direction: bool = False, use_nozzle: bool = False):
         """수동 테스트용: postprocess 파이프라인의 베드 비움 스윕을 지금 즉시 전송한다.
         해당 작업의 실제 출력 높이를 모르므로 여유 있는 고정 이동 높이(180mm)를 쓴다.
         파트가 플레이트에서 떨어질 만큼 식었는지는 펌웨어의 M109/M190 R 대기에
         맡기지 않고 (Bambu 펌웨어에서 그 파라미터가 검증되지 않음) 이미 동작이
         확인된 상태 폴링으로 직접 확인한 뒤에만 스윕 gcode를 보낸다.
         reversed_direction: 뒤쪽에 벽 등 장애물이 있어 베드가 끝까지 못 가는
-        기기용. 프린터별 설정(Printer.eject_reversed)에서 넘어온다."""
+        기기용. 프린터별 설정(Printer.eject_reversed)에서 넘어온다.
+        use_nozzle: 레일 방식이 닿지 못하는 낮은(짧은) 출력물용 -- 노즐이
+        직접 닿으므로 위험을 감수하는 대신 더 낮게 갈 수 있다. 프린터별
+        설정(Printer.eject_use_nozzle)에서 넘어온다."""
         if self.is_mock:
             return True, "[Mock] 베드 비움 스윕 전송됨"
         try:
             from bambu_postprocess import (
-                _eject_gcode, _EJECT_NOZZLE_TOUCH_C, _EJECT_BED_RELEASE_C,
+                _eject_gcode_rail, _eject_gcode_nozzle,
+                _EJECT_NOZZLE_TOUCH_C, _EJECT_BED_RELEASE_C,
             )
             status = self.get_status()
             if status.nozzle_temp is None or status.bed_temp is None:
@@ -120,7 +124,11 @@ class PrinterClient:
                     f"아직 뜨겁습니다 (노즐 {status.nozzle_temp:.0f}° · 베드 {status.bed_temp:.0f}°). "
                     f"노즐 {_EJECT_NOZZLE_TOUCH_C}° · 베드 {_EJECT_BED_RELEASE_C}° 이하로 식은 뒤 다시 시도하세요."
                 )
-            self._gateway_session().send_gcode(_eject_gcode(180.0, reversed_direction))
+            gcode = (
+                _eject_gcode_nozzle(180.0, reversed_direction) if use_nozzle
+                else _eject_gcode_rail(180.0, reversed_direction)
+            )
+            self._gateway_session().send_gcode(gcode)
             return True, "베드 비움 스윕을 전송했습니다"
         except Exception as e:
             logger.warning("[%s] 베드 비움 실패: %s", self.name, e)
