@@ -315,27 +315,24 @@ _EJECT_Y_PUSH = 5.0            # sweep ends here -- this is what actually
                                # drags the part toward the front (verified
                                # by watching the bed move on real hardware)
 
-# A live test confirmed the push is genuinely weak: watched with an empty
-# path, the sweep just stalls against real resistance instead of completing
-# -- not a firmware safety abort (there isn't one), just not enough force at
-# F3000. Steppers hold more torque at lower speed, so the push itself now
-# runs much slower, and repeats several times (fast return between attempts,
-# since the return direction meets no resistance) instead of giving up after
-# one pass.
+# A live test confirmed the push is genuinely weak (F3000 just stalls against
+# real resistance instead of completing) -- not a firmware safety abort
+# (there isn't one), just not enough force. Steppers hold more torque at
+# lower speed, so the push runs slower now.
+#
+# Tried repeating the push 2-3 times (fast return between attempts) to give
+# it multiple tries, but that made things WORSE on real hardware: a stall
+# during the push loses steps, so the firmware's belief about position drifts
+# from reality; the "return" move, computed from that now-wrong belief,
+# travels the wrong actual distance, and each repeat compounds the error.
+# After a couple of cycles this pushed the believed position past the real
+# travel limit -- a stepper straining against a hard stop is exactly what a
+# buzzing motor sounds like. A single pass can't drift against itself, so
+# no repeats.
 _EJECT_PUSH_FEED = 900         # was 3000 -- slower trades speed for torque
-_EJECT_RETURN_FEED = 3000      # fast is fine going back -- nothing resists it
-_EJECT_RAIL_PUSH_REPEATS = 3   # single pass, one shot at full width
-_EJECT_NOZZLE_PUSH_REPEATS = 2 # fewer -- this multiplies across 4 lanes already
 
-def _repeated_push_lines(approach_y: float, push_y: float, repeats: int) -> list[str]:
-    """Sweep to push_y and back `repeats` times before giving up, slow on the
-    push (more available torque), fast on the return (no resistance there)."""
-    lines = []
-    for i in range(repeats):
-        lines.append(f"G1 Y{push_y} F{_EJECT_PUSH_FEED}")
-        if i < repeats - 1:
-            lines.append(f"G1 Y{approach_y} F{_EJECT_RETURN_FEED}")
-    return lines
+def _push_lines(push_y: float) -> list[str]:
+    return [f"G1 Y{push_y} F{_EJECT_PUSH_FEED}"]
 
 
 def _eject_gcode_rail(z_travel: float, reversed_direction: bool = False) -> str:
@@ -378,7 +375,7 @@ def _eject_gcode_rail(z_travel: float, reversed_direction: bool = False) -> str:
         # the technique this whole sweep is based on.
         f"G1 X-48 Y{approach_y} F9000",
         f"G1 Z{_EJECT_RAIL_Z} F600",
-        *_repeated_push_lines(approach_y, push_y, _EJECT_RAIL_PUSH_REPEATS),
+        *_push_lines(push_y),
         "G4 P1000",       # let a just-freed part actually fall/settle before
                           # the head lifts back out of the way
         f"G1 Z{z_travel} F1200",
@@ -420,7 +417,7 @@ def _eject_gcode_nozzle(z_travel: float, reversed_direction: bool = False) -> st
         lines.append(f"G1 Z{z_travel} F1200")
         lines.append(f"G1 X{x} Y{approach_y} F9000")
         lines.append(f"G1 Z{_EJECT_NOZZLE_Z} F600")
-        lines.extend(_repeated_push_lines(approach_y, push_y, _EJECT_NOZZLE_PUSH_REPEATS))
+        lines.extend(_push_lines(push_y))
     lines.append("G4 P1000")
     lines.append(f"G1 Z{z_travel} F1200")
     return "\n".join(lines) + "\n"
