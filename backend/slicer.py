@@ -110,8 +110,16 @@ async def slice_stl(
     combined = f"{out_text}\n{err_text}".lower()
 
     if "outside of the print volume" in combined or "outside the print volume" in combined:
+        # PrusaSlicer's own line often names the actual offending coordinates/
+        # size -- surface it instead of a generic message so a real mismatch
+        # (vs. our own math) is diagnosable from the admin-visible error alone.
+        raw_lines = (out_text + "\n" + err_text).splitlines()
+        detail_lines = [l.strip() for l in raw_lines if "print volume" in l.lower()]
+        detail = " / ".join(detail_lines)[:300]
+        logger.error("출력 범위 초과 (원본 PrusaSlicer 출력): %s", detail or "(세부 내용 없음)")
         raise SlicingError(
             "모델이 출력 범위(256×256mm)를 벗어났습니다. 크기를 줄이거나 위치를 조정해 주세요."
+            + (f" [{detail}]" if detail else "")
         )
     if "no extrusions" in combined:
         raise SlicingError("슬라이싱할 내용이 없습니다. 모델이 유효한 solid(닫힌 메시)인지 확인해 주세요.")
