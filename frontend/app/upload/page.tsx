@@ -535,15 +535,21 @@ function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => voi
       else return;
       event.preventDefault();
       const t = parts[selected].transform;
+      // Clamp the footprint edge, not just the centre point -- otherwise
+      // nudging can walk a part's centre right up to the boundary while
+      // half its actual size sticks out past the bed.
+      const size = metrics[selected]?.size;
+      const halfX = size ? size.x / 2 : 0;
+      const halfY = size ? size.y / 2 : 0;
       patchTransform(selected, {
-        x: Math.max(-HALF, Math.min(HALF, t.x + dx)),
-        y: Math.max(-HALF, Math.min(HALF, t.y + dy)),
+        x: Math.max(-HALF + halfX, Math.min(HALF - halfX, t.x + dx)),
+        y: Math.max(-HALF + halfY, Math.min(HALF - halfY, t.y + dy)),
       });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, parts, removePart]);
+  }, [selected, parts, metrics, removePart]);
 
   const confirm = async () => {
     const sizeError = uploadSizeError(parts.map((part) => part.file));

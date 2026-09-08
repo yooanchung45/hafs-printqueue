@@ -651,9 +651,16 @@ export function StlPlateEditor({
       const local = bedPointFromPointer(event);
       if (!local) return;
       const half = BED_MM / 2;
+      // Clamp the *footprint edge* to the bed, not just the centre point --
+      // otherwise a part's centre can sit right at the boundary while half
+      // its actual size hangs off the bed, looking fine here but landing
+      // outside the print volume once actually sliced.
+      const size = shapeRef.current[drag.index]?.size;
+      const halfX = size ? size.x / 2 : 0;
+      const halfY = size ? size.y / 2 : 0;
       cbRef.current.onMove(drag.index, {
-        x: THREE.MathUtils.clamp(local.x - drag.offsetX, -half, half),
-        y: THREE.MathUtils.clamp(local.y - drag.offsetY, -half, half),
+        x: THREE.MathUtils.clamp(local.x - drag.offsetX, -half + halfX, half - halfX),
+        y: THREE.MathUtils.clamp(local.y - drag.offsetY, -half + halfY, half - halfY),
       });
     };
     const onPointerUp = (event: PointerEvent) => {
