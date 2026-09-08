@@ -177,6 +177,20 @@ def merge_stls(parts: list[dict], bed_mm: int = 256) -> str:
 
         tx = bed_mm / 2.0 + float(part.get("x", 0.0)) - (min_x + max_x) / 2.0
         ty = bed_mm / 2.0 + float(part.get("y", 0.0)) - (min_y + max_y) / 2.0
+
+        # Authoritative bed-fit check on the actual transformed geometry --
+        # doesn't depend on the frontend's bounds check, which reports each
+        # part's size back asynchronously (one render cycle after a scale
+        # change) and can be raced by submitting right after a resize.
+        final_min_x, final_max_x = tx + min_x, tx + max_x
+        final_min_y, final_max_y = ty + min_y, ty + max_y
+        if final_min_x < -1e-6 or final_max_x > bed_mm + 1e-6 or \
+           final_min_y < -1e-6 or final_max_y > bed_mm + 1e-6:
+            raise SlicingError(
+                f"{source.name}: 출력 범위(256×256mm)를 벗어났습니다 "
+                f"(크기 {max_x - min_x:.1f}×{max_y - min_y:.1f}mm). "
+                "크기를 줄이거나 위치를 조정해 주세요."
+            )
         tz = -min_z
 
         # Pass 2 — emit the transformed triangles into the shared body.
