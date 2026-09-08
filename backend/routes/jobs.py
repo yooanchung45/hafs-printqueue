@@ -239,14 +239,12 @@ async def upload_submit(
 
 async def _slice_job_bg(
     job_id: int,
-    stl_path: str,
     original_name: str,
-    transform: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
-    parts: list[dict] | None = None,
+    parts: list[dict],
 ):
     from db import async_session_maker
     from slicer import SlicingError, slice_stl
-    from stl_transform import apply_transform, merge_stls
+    from stl_transform import merge_stls
 
     async with async_session_maker() as db:
         job = (
@@ -256,24 +254,16 @@ async def _slice_job_bg(
             return
         try:
             # 변환/병합은 큰 파일에서 수십 초가 걸릴 수 있어 요청 핸들러가 아니라
-            # 여기(백그라운드)에서 처리한다.
+            # 여기(백그라운드)에서 처리한다. 파일이 하나여도 merge_stls를 거친다 --
+            # 업로드된 STL 원본 좌표는 학생의 CAD 소프트웨어가 내보낸 그대로일 뿐
+            # 베드에 맞춰 정렬돼 있다는 보장이 없고, 미리보기 뷰어는 항상 베드
+            # 중앙에 놓인 것처럼 보여주므로 실제로도 그렇게 만들어야 일치한다.
             loop = asyncio.get_running_loop()
-            if parts:
-                # Several STLs arranged on one bed -> one merged STL, one slice.
-                transformed_path = await loop.run_in_executor(None, merge_stls, parts)
-                for part in parts:
-                    Path(part["path"]).unlink(missing_ok=True)
-                job.file_path = transformed_path
-                job.file_size = Path(transformed_path).stat().st_size
-            else:
-                scale, rotation_x, rotation_y, rotation_z = transform
-                transformed_path = await loop.run_in_executor(
-                    None, apply_transform, stl_path, scale, rotation_x, rotation_y, rotation_z
-                )
-                if transformed_path != stl_path:
-                    Path(stl_path).unlink(missing_ok=True)
-                    job.file_path = transformed_path
-                    job.file_size = Path(transformed_path).stat().st_size
+            transformed_path = await loop.run_in_executor(None, merge_stls, parts)
+            for part in parts:
+                Path(part["path"]).unlink(missing_ok=True)
+            job.file_path = transformed_path
+            job.file_size = Path(transformed_path).stat().st_size
             final_path, estimated_minutes = await slice_stl(transformed_path)
             job.file_path = final_path
             job.filename = _safe_stem(original_name) + Path(final_path).suffix
@@ -361,8 +351,7 @@ async def stl_confirm(
         await db.flush()
         await db.commit()
         notify_new_jobs(user.name, [name], printer.name)
-        transform = (spec["scale"], spec["rotation_x"], spec["rotation_y"], spec["rotation_z"])
-        background_tasks.add_task(_slice_job_bg, job.id, path, name, transform)
+        background_tasks.add_task(_slice_job_bg, job.id, name, [spec])
         return {"created": [job_dict(job, printer=printer)]}
 
     # Multi-part plate: one job, files merged in the background.
@@ -382,8 +371,7 @@ async def stl_confirm(
     await db.commit()
     notify_new_jobs(user.name, [plate_name], printer.name)
     background_tasks.add_task(
-        _slice_job_bg, job.id, "", plate_name, (1.0, 0.0, 0.0, 0.0),
-        [item[3] for item in saved],
+        _slice_job_bg, job.id, plate_name, [item[3] for item in saved],
     )
     return {"created": [job_dict(job, printer=printer)]}
 
