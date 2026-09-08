@@ -84,7 +84,7 @@ _GREETINGS = [
 def _greeting(user: User) -> str:
     real_name = re.sub(r"^\d+", "", user.name)
     if "이서우" in real_name:
-        return "세상에서 제일 예쁘고 착하고 귀엽고 멋있고 똑똑하고 공부 잘하고 일 잘하고 대학도 겁나 잘갈고 그냥 지구상 제일 완벽한 사람인 정유안에게 없어서는 절대 안되는 제일 소중한 사람인 이서우♥️🩷🧡💛💚💙🩵💜🤍🖤❤️‍🔥❣️💘💝💖💗💓💞💌😘🥰"
+        return "sw💘"
     if "이재현" in real_name:
         return "이재현 🥀 ah ey"
     if "이재승" in real_name:
@@ -148,6 +148,22 @@ async def dashboard(
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/version")
+async def version():
+    """deploy.sh writes the deployed commit here right after a successful
+    build -- lets us confirm exactly what's live instead of guessing about
+    deploy timing after every push."""
+    from pathlib import Path
+    from config import settings
+
+    revision_file = Path(settings.UPLOAD_DIR).parent / ".deployed-revision"
+    try:
+        commit = revision_file.read_text().strip()
+    except FileNotFoundError:
+        commit = None
+    return {"commit": commit}
 
 
 @app.get("/api/printers/status")
