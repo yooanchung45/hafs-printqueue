@@ -63,13 +63,16 @@ async def slice_stl(
     cmd = [
         PRUSA_SLICER,
         "--export-gcode",
-        "--dont-arrange",   # merge_stls() already centres and positions every
-                            # part deliberately; without this, PrusaSlicer
-                            # auto-splits a multi-shell STL into separate
-                            # objects and re-arranges them around the bed
-                            # centroid itself, discarding our layout entirely
-                            # (surfaced as "All objects are outside of the
-                            # print volume" even though our arrangement fits).
+        # NOT --dont-arrange: verified locally (PrusaSlicer installed and run
+        # directly against the actual failing files, bisecting flag by flag)
+        # that --dont-arrange itself is what causes "All objects are outside
+        # of the print volume" -- it broke files that slice perfectly fine
+        # without it, including simple single-shell parts that were never a
+        # multi-object/arrange problem in the first place. It was added to
+        # fix that error and was actually the cause of it. Do not re-add
+        # without re-verifying locally first (see backend/README or ask --
+        # PrusaSlicer can be installed with `winget install Prusa3D.PrusaSlicer`
+        # for direct testing instead of guessing from documentation).
         "--load", str(SLICER_PROFILE),
         "--output", str(out_path),
         "--layer-height", str(layer_height),
