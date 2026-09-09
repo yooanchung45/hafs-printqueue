@@ -299,16 +299,28 @@ G92 E0
 # this hardware, rather than an unverified firmware feature.
 _EJECT_BED_RELEASE_C = 40      # PLA/PETG typically let go of PEI by here
 _EJECT_NOZZLE_TOUCH_C = 60     # cool enough that a graze won't smear the part
-_EJECT_RAIL_Z = -6.0           # Confirmed clean (smooth, no grinding/stall)
-                               # on real hardware. Further negative values
-                               # (-15) showed no additional travel at all --
-                               # Bambu's firmware appears to clamp Z to a
-                               # software floor somewhere between -6 and -15,
-                               # so going more negative doesn't help. This
-                               # floor sits above a 1cm-tall test print (it
-                               # wasn't caught) -- the rail technique simply
-                               # cannot reach short/medium prints; that's
-                               # what _eject_gcode_nozzle is for.
+
+# -4 and -6 both tested clean (smooth, no grinding/stall) on real hardware;
+# -15 showed no additional travel at all, meaning Bambu's firmware clamps Z
+# to some floor between -6 and -15 -- exactly where isn't known, only that
+# it's past -6. Using -4 here, not -6: same technique works either way, and
+# -4 leaves a real, deliberate margin above the *closer* of the two tested
+# points instead of the one nearer the (still unmeasured) actual limit. This
+# floor sits above a 1cm-tall test print (it wasn't caught) -- the rail
+# technique simply cannot reach short/medium prints; that's what
+# _eject_gcode_nozzle is for.
+_EJECT_RAIL_Z = -4.0
+# Hard safety floor: never generate rail-eject gcode more negative than this
+# without physically re-testing on hardware first and moving the floor with
+# it. This is a tripwire, not a target -- it exists so a future "let's just
+# nudge it a bit lower" edit fails loudly instead of silently shipping an
+# unverified Z value.
+_EJECT_RAIL_Z_FLOOR = -6.0
+assert _EJECT_RAIL_Z >= _EJECT_RAIL_Z_FLOOR, (
+    f"_EJECT_RAIL_Z ({_EJECT_RAIL_Z}) is below the verified-safe floor "
+    f"({_EJECT_RAIL_Z_FLOOR}) -- re-test on real hardware before lowering it."
+)
+
 _EJECT_Y_APPROACH = 215.0      # reposition here first, at safe height --
                                # kept well clear of the ~254 brush corner
 _EJECT_Y_PUSH = 5.0            # sweep ends here -- this is what actually
