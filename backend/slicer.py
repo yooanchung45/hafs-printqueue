@@ -19,6 +19,17 @@ logger = logging.getLogger("slicer")
 PRUSA_SLICER = "prusa-slicer"
 SLICER_PROFILE = Path(__file__).resolve().parent / "slicer_profiles" / "bambu_a1.ini"
 
+# A1 print area (matches stl_transform.merge_stls' bed_mm default and the
+# bed_shape line in bambu_a1.ini). Passed again explicitly on the CLI below
+# -- root-caused locally (PrusaSlicer installed and run directly against the
+# actual failing files) that bed_shape from --load alone does not reliably
+# take effect: identical geometry, identical profile, only difference is
+# this redundant --bed-shape flag, and it's what separated every real
+# "outside of the print volume" failure from success. Every prior theory
+# (--dont-arrange, extruder clearance, skirt/brim, multi-shell handling) was
+# chasing symptoms of this one underlying issue.
+BED_SHAPE = "0x0,256x0,256x256,0x256"
+
 SLICE_TIMEOUT = 300  # 5분 타임아웃
 
 
@@ -67,13 +78,14 @@ async def slice_stl(
         # directly against the actual failing files, bisecting flag by flag)
         # that --dont-arrange itself is what causes "All objects are outside
         # of the print volume" -- it broke files that slice perfectly fine
-        # without it, including simple single-shell parts that were never a
-        # multi-object/arrange problem in the first place. It was added to
-        # fix that error and was actually the cause of it. Do not re-add
-        # without re-verifying locally first (see backend/README or ask --
-        # PrusaSlicer can be installed with `winget install Prusa3D.PrusaSlicer`
-        # for direct testing instead of guessing from documentation).
+        # without it. It was added to fix that error and was actually a
+        # cause of it. Do not re-add without re-verifying locally first
+        # (`winget install Prusa3D.PrusaSlicer` for direct testing instead
+        # of guessing from documentation).
         "--load", str(SLICER_PROFILE),
+        "--bed-shape", BED_SHAPE,  # see BED_SHAPE comment above -- required,
+                                    # not redundant, despite bed_shape already
+                                    # being in the loaded profile
         "--output", str(out_path),
         "--layer-height", str(layer_height),
         "--fill-density", f"{infill}%",
