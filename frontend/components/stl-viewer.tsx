@@ -350,6 +350,22 @@ export interface PartTransform {
 export interface PartMetrics {
   size: { x: number; y: number; z: number };  // transformed bounding-box dimensions, mm
   triangles: number;
+  // scale|rotationX|rotationY|rotationZ this size was computed for. Reporting
+  // it lets the caller detect a stale metrics entry (still holding the size
+  // from *before* a resize/rotate) instead of trusting whatever's cached --
+  // updating this size is itself an async round trip through parent state,
+  // so there's a real window right after a transform change where a naive
+  // bounds check would pass using the old, wrong size. See
+  // partTransformKey().
+  key: string;
+}
+
+/** Key identifying which (scale, rotation) a PartMetrics.size was computed
+ * for -- position isn't included since it doesn't affect size. Shared by the
+ * editor (to report freshness) and callers (to verify it) so the two never
+ * drift out of sync with each other. */
+export function partTransformKey(t: Pick<PartTransform, "scale" | "rotationX" | "rotationY" | "rotationZ">): string {
+  return `${t.scale}|${t.rotationX}|${t.rotationY}|${t.rotationZ}`;
 }
 
 /** R = Rz·Ry·Rx applied to a column vector — matches backend merge_stls so the
@@ -446,7 +462,7 @@ export function StlPlateEditor({
       const t = part.transform;
       mesh.scale.setScalar(t.scale);
       mesh.rotation.copy(eulerFromDegrees(t.rotationX, t.rotationY, t.rotationZ));
-      const key = `${t.scale}|${t.rotationX}|${t.rotationY}|${t.rotationZ}`;
+      const key = partTransformKey(t);
       let shape = shapeRef.current[index];
       if (!shape || shape.key !== key) {
         mesh.position.set(0, 0, 0);
@@ -466,6 +482,7 @@ export function StlPlateEditor({
       cbRef.current.onPartMetrics(index, {
         size: { x: shape.size.x, y: shape.size.y, z: shape.size.z },
         triangles: mesh.geometry.getAttribute("position").count / 3,
+        key: shape.key,
       });
     });
   };

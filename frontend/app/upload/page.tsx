@@ -9,6 +9,7 @@ import {
   BED_MM,
   StlPlateEditor,
   StlViewer,
+  partTransformKey,
   type ModelTransform,
   type PartMetrics,
   type PartTransform,
@@ -431,13 +432,23 @@ function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => voi
     [parts, objectUrls],
   );
 
+  // A part's metrics update asynchronously (through parent state, one render
+  // cycle behind the transform that triggered it) -- so right after a resize
+  // or rotate, metrics[i] can still hold the *previous* size for a moment.
+  // Treating a stale entry as unknown (null) rather than trusting it is what
+  // actually closes that gap, instead of just narrowing the window.
+  const freshMetrics = useMemo(
+    () => parts.map((part, i) => (metrics[i]?.key === partTransformKey(part.transform) ? metrics[i] : null)),
+    [parts, metrics],
+  );
+
   const footprints = useMemo(
     () =>
       parts.map((part, i) => {
-        const m = metrics[i];
+        const m = freshMetrics[i];
         return m ? { x: part.transform.x, y: part.transform.y, sx: m.size.x, sy: m.size.y, sz: m.size.z } : null;
       }),
-    [parts, metrics],
+    [parts, freshMetrics],
   );
 
   const invalid = useMemo(() => {
@@ -458,7 +469,7 @@ function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => voi
     return bad;
   }, [footprints]);
 
-  const metricsComplete = parts.every((_, i) => metrics[i] != null);
+  const metricsComplete = freshMetrics.every((m) => m != null);
   const canSubmit = parts.length >= 1 && metricsComplete && invalid.size === 0;
 
   const patchTransform = (i: number, patch: Partial<PartTransform>) =>
@@ -537,8 +548,11 @@ function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => voi
       const t = parts[selected].transform;
       // Clamp the footprint edge, not just the centre point -- otherwise
       // nudging can walk a part's centre right up to the boundary while
-      // half its actual size sticks out past the bed.
-      const size = metrics[selected]?.size;
+      // half its actual size sticks out past the bed. Use freshMetrics, not
+      // metrics directly -- right after a resize, metrics[selected] can
+      // still be the pre-resize size for a render cycle, which would clamp
+      // against the wrong (smaller) footprint.
+      const size = freshMetrics[selected]?.size;
       const halfX = size ? size.x / 2 : 0;
       const halfY = size ? size.y / 2 : 0;
       patchTransform(selected, {
@@ -549,7 +563,7 @@ function PlateWorkbench({ data, onBack }: { data: PreviewData; onBack: () => voi
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, parts, metrics, removePart]);
+  }, [selected, parts, freshMetrics, removePart]);
 
   const confirm = async () => {
     const sizeError = uploadSizeError(parts.map((part) => part.file));
