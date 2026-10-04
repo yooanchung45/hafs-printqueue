@@ -1,4 +1,4 @@
-export type Role = "student" | "admin";
+export type Role = "user" | "admin";
 export type PrinterStatus = "idle" | "printing" | "paused" | "error" | "offline";
 export type JobStatus =
   | "processing"

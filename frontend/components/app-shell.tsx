@@ -37,6 +37,12 @@ const loginErrors: Record<string, string> = {
   no_userinfo: "Google 계정 정보를 불러오지 못했습니다.",
 };
 
+function accountRoleLabel(user: User): string {
+  if (user.role === "admin") return "관리자";
+  const [username, domain] = user.email.trim().toLowerCase().split("@");
+  return domain === "hafs.hs.kr" && !/^\d{6}$/.test(username) ? "교사" : "학생";
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -105,6 +111,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     ? [...navigation, { href: "/admin", label: "관리자", icon: Settings }]
     : navigation;
   const displayName = session.user.name.replace(/^\d+\s*/, "");
+  const roleLabel = accountRoleLabel(session.user);
 
   return (
     <div className="app-frame">
@@ -141,7 +148,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="avatar" aria-hidden="true">{displayName.slice(0, 1)}</div>
           <div className="account-copy">
             <strong>{displayName}</strong>
-            <span>{session.user.role === "admin" ? "관리자" : "학생"}</span>
+            <span>{roleLabel}</span>
           </div>
           <ThemeToggle />
           <a href="/api/auth/logout" className="icon-button" aria-label="로그아웃" title="로그아웃" onClick={() => posthog.reset()}>

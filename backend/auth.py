@@ -72,7 +72,7 @@ async def callback(request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
-    role = UserRole.ADMIN if settings.is_admin(email) else UserRole.STUDENT
+    role = UserRole.ADMIN if settings.is_admin(email) else UserRole.USER
 
     if user is None:
         user = User(email=email, name=name, role=role)

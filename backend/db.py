@@ -73,6 +73,9 @@ async def init_db():
                     "failure_acknowledged BOOLEAN NOT NULL DEFAULT 0"
                 )
             )
+        await conn.execute(
+            text("UPDATE users SET role = 'USER' WHERE role IN ('STUDENT', 'student')")
+        )
         printer_columns = await conn.run_sync(
             lambda sync_conn: {
                 column["name"] for column in inspect(sync_conn).get_columns("printers")

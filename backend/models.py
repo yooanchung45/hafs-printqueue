@@ -17,7 +17,7 @@ from db import Base
 
 
 class UserRole(str, enum.Enum):
-    STUDENT = "student"
+    USER = "user"
     ADMIN = "admin"
 
 
@@ -47,7 +47,7 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=False)
-    role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.STUDENT)
+    role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.USER)
     created_at = Column(DateTime, server_default=func.now())
 
     jobs = relationship("Job", back_populates="user")
