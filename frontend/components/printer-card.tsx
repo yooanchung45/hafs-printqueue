@@ -4,9 +4,9 @@ import { CameraFeed } from "@/components/camera-feed";
 import { JobPreview } from "@/components/job-preview";
 import { StatusBadge } from "@/components/status-badge";
 import { printProgress } from "@/lib/api";
-import type { Printer } from "@/lib/types";
+import type { Printer, User } from "@/lib/types";
 
-export function PrinterCard({ printer, userId }: { printer: Printer; userId: number }) {
+export function PrinterCard({ printer, user }: { printer: Printer; user: Pick<User, "id" | "role"> }) {
   const jobs = printer.jobs ?? [];
   const activeJob = jobs.find((job) => job.status === "printing");
   // Time-based estimate first; fall back to the printer's own reported % (e.g.
@@ -40,13 +40,13 @@ export function PrinterCard({ printer, userId }: { printer: Printer; userId: num
       {jobs.length ? (
         <ol className="queue-list">
           {jobs.map((job) => (
-            <li key={job.id} className={job.user_id === userId ? "queue-item queue-item-mine" : "queue-item"}>
+            <li key={job.id} className={job.user_id === user.id ? "queue-item queue-item-mine" : "queue-item"}>
               <div className="queue-position">{job.status === "queued" ? job.queue_position ?? "—" : <span className="queue-live" />}</div>
               <div className="queue-copy">
                 <strong className="truncate">{job.filename}</strong>
-                <span>{job.user_id === userId ? "내 작업" : job.status === "awaiting_clear" ? "출력 완료" : job.status === "printing" ? "출력 중" : "대기 중"}</span>
+                <span>{job.user_id === user.id ? "내 작업" : job.status === "awaiting_clear" ? "출력 완료" : job.status === "printing" ? "출력 중" : "대기 중"}</span>
               </div>
-              <JobPreview job={job} />
+              {user.role === "admin" || job.user_id === user.id ? <JobPreview job={job} /> : null}
             </li>
           ))}
         </ol>

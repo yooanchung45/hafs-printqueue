@@ -64,7 +64,7 @@ export default function Home() {
       {error ? <div className="notice notice-danger error-banner">{error}</div> : null}
       {data.printers.length ? (
         <div className="printer-grid">
-          {data.printers.map((printer) => <PrinterCard key={printer.id} printer={printer} userId={data.user.id} />)}
+          {data.printers.map((printer) => <PrinterCard key={printer.id} printer={printer} user={data.user} />)}
         </div>
       ) : (
         <EmptyState icon={PrinterIcon} title="등록된 프린터가 없습니다" body="관리자가 프린터를 등록하면 여기에 상태가 표시됩니다." />
