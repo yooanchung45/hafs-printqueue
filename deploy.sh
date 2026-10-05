@@ -39,29 +39,32 @@ fi
 compose config --quiet
 
 CURRENT_REVISION="$(git rev-parse HEAD)"
-NEEDS_BUILD=false
+BUILD_SERVICES=()
 
 if [[ ! -s "$REVISION_FILE" ]]; then
-    NEEDS_BUILD=true
+    BUILD_SERVICES=(backend frontend)
 else
     PREVIOUS_REVISION="$(<"$REVISION_FILE")"
     if ! git cat-file -e "${PREVIOUS_REVISION}^{commit}" 2>/dev/null; then
-        NEEDS_BUILD=true
+        BUILD_SERVICES=(backend frontend)
     else
         CHANGED_FILES="$(git diff --name-only "$PREVIOUS_REVISION" "$CURRENT_REVISION")"
-        if grep -qE '^(backend/|frontend/|docker-compose(\.prod)?\.yml$)' <<<"$CHANGED_FILES"; then
-            NEEDS_BUILD=true
+        if grep -qE '^(backend/|docker-compose(\.prod)?\.yml$)' <<<"$CHANGED_FILES"; then
+            BUILD_SERVICES+=(backend)
+        fi
+        if grep -qE '^(frontend/|docker-compose(\.prod)?\.yml$)' <<<"$CHANGED_FILES"; then
+            BUILD_SERVICES+=(frontend)
         fi
     fi
 fi
 
-if [[ "$NEEDS_BUILD" == true ]]; then
-    echo ">> 애플리케이션 이미지 빌드 및 컨테이너 반영"
-    compose up -d --build --remove-orphans
-else
-    echo ">> 이미지 변경 없음: Compose 설정 및 컨테이너 상태 반영"
-    compose up -d --remove-orphans
+if (( ${#BUILD_SERVICES[@]} > 0 )); then
+    echo ">> 변경된 이미지 빌드: ${BUILD_SERVICES[*]}"
+    compose build "${BUILD_SERVICES[@]}"
 fi
+
+echo ">> Compose 설정 및 컨테이너 상태 반영"
+compose up -d --no-build --remove-orphans
 
 # 성공한 배포만 기준 커밋으로 기록합니다. 다음 배포의 변경 감지에 사용됩니다.
 printf '%s\n' "$CURRENT_REVISION" > "$REVISION_FILE"
