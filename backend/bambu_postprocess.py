@@ -309,17 +309,46 @@ _EJECT_NOZZLE_TOUCH_C = 60     # cool enough that a graze won't smear the part
 # floor sits above a 1cm-tall test print (it wasn't caught) -- the rail
 # technique simply cannot reach short/medium prints; that's what
 # _eject_gcode_nozzle is for.
-_EJECT_RAIL_Z = -4.0
-# Hard safety floor: never generate rail-eject gcode more negative than this
-# without physically re-testing on hardware first and moving the floor with
-# it. This is a tripwire, not a target -- it exists so a future "let's just
-# nudge it a bit lower" edit fails loudly instead of silently shipping an
-# unverified Z value.
-_EJECT_RAIL_Z_FLOOR = -6.0
+#
+# UPDATE: a later run still drove Z too low and the gantry stalled. Z-4 only
+# "worked" because the firmware was assumed to clamp it, and that clamp isn't
+# guaranteed -- Bambu's own start gcode sends `M211 X0 Y0 Z0`, which turns
+# software limits off, and nothing here turns them back on. With limits off a
+# negative Z drives straight into the mechanical stop. So we no longer send
+# ANY negative Z: the rail pass now goes to Z0 (the plate-contact plane).
+# Cost: the rail catches fewer short parts -- those need eject_use_nozzle.
+_EJECT_RAIL_Z = 0.0
+# Hard safety floor: never generate eject gcode below this. Enforced for every
+# generated move by _validate_eject_gcode, not just this constant.
+_EJECT_RAIL_Z_FLOOR = 0.0
 assert _EJECT_RAIL_Z >= _EJECT_RAIL_Z_FLOOR, (
-    f"_EJECT_RAIL_Z ({_EJECT_RAIL_Z}) is below the verified-safe floor "
+    f"_EJECT_RAIL_Z ({_EJECT_RAIL_Z}) is below the safe floor "
     f"({_EJECT_RAIL_Z_FLOOR}) -- re-test on real hardware before lowering it."
 )
+
+# Absolute envelope for any eject move, taken from the extremes in Bambu's own
+# A1 start/end gcode (X-48 is the off-bed park/purge strip). Nothing outside it
+# is ever sent to the printer.
+_A1_LIMITS = {"X": (-49.0, 256.0), "Y": (0.0, 256.0), "Z": (0.0, 256.0)}
+
+
+def _validate_eject_gcode(gcode: str) -> str:
+    """Raise ValueError if any G0/G1 move in `gcode` leaves _A1_LIMITS, or if
+    it touches software endstops (M211). Returns the gcode unchanged."""
+    for raw in gcode.splitlines():
+        line = raw.split(";", 1)[0].strip().upper()
+        if line.startswith("M211"):
+            raise ValueError(f"eject gcode must not change soft limits: {raw!r}")
+        if not re.match(r"^G[01]\b", line):
+            continue
+        for axis, value in re.findall(r"\b([XYZ])(-?\d+(?:\.\d+)?)", line):
+            low, high = _A1_LIMITS[axis]
+            if not low <= float(value) <= high:
+                raise ValueError(
+                    f"eject move out of bounds ({axis}{value}, allowed "
+                    f"{low}..{high}): {raw!r}"
+                )
+    return gcode
 
 _EJECT_Y_APPROACH = 215.0      # reposition here first, at safe height --
                                # kept well clear of the ~254 brush corner
@@ -392,7 +421,7 @@ def _eject_gcode_rail(z_travel: float, reversed_direction: bool = False) -> str:
                           # the head lifts back out of the way
         f"G1 Z{z_travel} F1200",
     ]
-    return "\n".join(lines) + "\n"
+    return _validate_eject_gcode("\n".join(lines) + "\n")
 
 
 # ── Bed eject: nozzle technique -- multi-lane sweep for short prints ───────
@@ -432,7 +461,7 @@ def _eject_gcode_nozzle(z_travel: float, reversed_direction: bool = False) -> st
         lines.extend(_push_lines(push_y))
     lines.append("G4 P1000")
     lines.append(f"G1 Z{z_travel} F1200")
-    return "\n".join(lines) + "\n"
+    return _validate_eject_gcode("\n".join(lines) + "\n")
 
 
 # ── Bambu A1 machine end gcode ────────────────────────────────────────────────

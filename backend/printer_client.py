@@ -117,6 +117,10 @@ class PrinterClient:
                 _EJECT_NOZZLE_TOUCH_C, _EJECT_BED_RELEASE_C,
             )
             status = self.get_status()
+            if not status.online:
+                return False, "프린터에 연결할 수 없어 베드 비움을 보내지 않았습니다"
+            if status.state in ("RUNNING", "PAUSE", "PREPARE"):
+                return False, "출력 중이거나 일시정지된 프린터에는 베드 비움을 보낼 수 없습니다"
             if status.nozzle_temp is None or status.bed_temp is None:
                 return False, "온도 정보를 읽을 수 없어 베드 비움을 보내지 않았습니다"
             if status.nozzle_temp > _EJECT_NOZZLE_TOUCH_C or status.bed_temp > _EJECT_BED_RELEASE_C:
