@@ -18,7 +18,9 @@ ENV NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN=${NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN} \
     NEXT_PUBLIC_POSTHOG_HOST=${NEXT_PUBLIC_POSTHOG_HOST}
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
-RUN pnpm build
+# Keep Next's compiler cache between deploys (BuildKit cache mount): without it
+# every deploy recompiles the whole app from scratch, which is very slow on the Pi.
+RUN --mount=type=cache,target=/app/.next/cache pnpm build
 
 FROM node:22-slim AS runtime
 WORKDIR /app
