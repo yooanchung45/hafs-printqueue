@@ -37,6 +37,34 @@ def test_push_is_fast_but_under_ceiling():
         )
 
 
+@pytest.mark.parametrize("reversed_direction", [False, True])
+def test_rail_hits_bar_several_times_with_short_backoffs(reversed_direction):
+    from bambu_postprocess import (
+        _EJECT_PUSH_FEED,
+        _EJECT_RAIL_BACKOFF_MM,
+        _EJECT_RAIL_MAX_PASSES,
+        _EJECT_RAIL_PASSES,
+    )
+
+    gcode = _eject_gcode_rail(180.0, reversed_direction)
+    pushes = [l for l in gcode.splitlines() if f"F{_EJECT_PUSH_FEED}" in l]
+    assert len(pushes) == _EJECT_RAIL_PASSES
+    assert 3 <= _EJECT_RAIL_PASSES <= _EJECT_RAIL_MAX_PASSES
+    # No repeat ever returns to the far (approach) end -- only short back-offs.
+    y_moves = [float(v) for v in re.findall(r"\bY(-?\d+(?:\.\d+)?)", gcode)]
+    push_y = float(re.search(r"Y(-?\d+(?:\.\d+)?) F%d" % _EJECT_PUSH_FEED, gcode).group(1))
+    backoffs = [y for y in y_moves[1:] if y != push_y]
+    assert len(backoffs) == _EJECT_RAIL_PASSES - 1
+    assert all(abs(y - push_y) == _EJECT_RAIL_BACKOFF_MM for y in backoffs)
+
+
+def test_nozzle_eject_is_not_repeated():
+    from bambu_postprocess import _EJECT_PUSH_FEED
+
+    gcode = _eject_gcode_nozzle(180.0)
+    assert gcode.count(f"F{_EJECT_PUSH_FEED}") == 4  # one per lane only
+
+
 def test_rail_eject_never_sends_negative_z():
     assert min(_axis_values(_eject_gcode_rail(180.0), "Z")) >= 0.0
 

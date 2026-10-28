@@ -388,6 +388,21 @@ _EJECT_Y_PUSH = 5.0            # sweep ends here -- this is what actually
 _EJECT_PUSH_FEED = 12000
 _EJECT_MAX_FEED = 18000        # never emit an eject move faster than this
 
+# Rail technique only: hit the bar several times, because one hit often isn't
+# enough to break a part free. The drift problem described above came from
+# FULL-length returns (Y5 -> Y215 -> Y5 ...): a lost-step push then made the
+# long return overshoot, and it compounded. So repeats here use a SHORT
+# back-off from the push end (not a full return), then push again. Each re-hit
+# is commanded over the same short distance, and the part/bar (not the
+# firmware's step count) is what stops the bed, so an error can't snowball the
+# way it did with long returns. 30mm is far more than the ~4mm the bed needs
+# to reach full speed. Capped at 4 passes total.
+_EJECT_RAIL_PASSES = 3         # total hits on the bar (first full stroke + repeats)
+_EJECT_RAIL_MAX_PASSES = 4
+_EJECT_RAIL_BACKOFF_MM = 30.0
+_EJECT_RAIL_BACKOFF_FEED = 9000
+assert 1 <= _EJECT_RAIL_PASSES <= _EJECT_RAIL_MAX_PASSES
+
 def _push_lines(push_y: float) -> list[str]:
     return [f"G1 Y{push_y} F{_EJECT_PUSH_FEED}"]
 
@@ -433,6 +448,17 @@ def _eject_gcode_rail(z_travel: float, reversed_direction: bool = False) -> str:
         f"G1 X-48 Y{approach_y} F9000",
         f"G1 Z{_EJECT_RAIL_Z} F600",
         *_push_lines(push_y),
+    ]
+    # Repeat hits: short back-off toward the approach side, then push again.
+    toward_approach = 1.0 if approach_y > push_y else -1.0
+    backoff_y = push_y + toward_approach * _EJECT_RAIL_BACKOFF_MM
+    for _ in range(_EJECT_RAIL_PASSES - 1):
+        lines += [
+            "G4 P300",
+            f"G1 Y{backoff_y} F{_EJECT_RAIL_BACKOFF_FEED}",
+            *_push_lines(push_y),
+        ]
+    lines += [
         "G4 P1000",       # let a just-freed part actually fall/settle before
                           # the head lifts back out of the way
         f"G1 Z{z_travel} F1200",
