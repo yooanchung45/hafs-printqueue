@@ -341,6 +341,11 @@ def _validate_eject_gcode(gcode: str) -> str:
             raise ValueError(f"eject gcode must not change soft limits: {raw!r}")
         if not re.match(r"^G[01]\b", line):
             continue
+        feed = re.search(r"\bF(\d+(?:\.\d+)?)", line)
+        if feed and float(feed.group(1)) > _EJECT_MAX_FEED:
+            raise ValueError(
+                f"eject move too fast (F{feed.group(1)}, max {_EJECT_MAX_FEED}): {raw!r}"
+            )
         for axis, value in re.findall(r"\b([XYZ])(-?\d+(?:\.\d+)?)", line):
             low, high = _A1_LIMITS[axis]
             if not low <= float(value) <= high:
@@ -370,7 +375,18 @@ _EJECT_Y_PUSH = 5.0            # sweep ends here -- this is what actually
 # travel limit -- a stepper straining against a hard stop is exactly what a
 # buzzing motor sounds like. A single pass can't drift against itself, so
 # no repeats.
-_EJECT_PUSH_FEED = 900         # was 3000 -- slower trades speed for torque
+#
+# UPDATE: the slow push (F900) wasn't dislodging parts at all. The goal is
+# different from "steady shove": hit the part against the fixed bar / the
+# nozzle's scraper cover at close to the A1's normal travel speed, so the
+# impact itself gives the part its initial nudge off the plate (the nozzle now
+# has a printed scraper cover, so contact there is intended). Y has ~210mm of
+# run-up (Y215 -> Y5), plenty to get up to speed. F12000 = 200 mm/s, well
+# under the A1's own travel limit (M203 Y500 mm/s = F30000 in the start
+# gcode). Tune upward in small steps -- _EJECT_MAX_FEED is the hard ceiling.
+# Still ONE pass only, for the drift reason above.
+_EJECT_PUSH_FEED = 12000
+_EJECT_MAX_FEED = 18000        # never emit an eject move faster than this
 
 def _push_lines(push_y: float) -> list[str]:
     return [f"G1 Y{push_y} F{_EJECT_PUSH_FEED}"]

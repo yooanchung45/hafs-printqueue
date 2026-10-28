@@ -25,6 +25,18 @@ def test_generated_eject_gcode_stays_in_envelope(make, reversed_direction):
     assert "M211" not in gcode
 
 
+def test_push_is_fast_but_under_ceiling():
+    from bambu_postprocess import _EJECT_MAX_FEED, _EJECT_PUSH_FEED
+
+    assert 6000 <= _EJECT_PUSH_FEED <= _EJECT_MAX_FEED
+    for gcode in (_eject_gcode_rail(180.0), _eject_gcode_nozzle(180.0)):
+        assert f"F{_EJECT_PUSH_FEED}" in gcode
+        assert all(
+            float(f) <= _EJECT_MAX_FEED
+            for f in re.findall(r"\bF(\d+(?:\.\d+)?)", gcode)
+        )
+
+
 def test_rail_eject_never_sends_negative_z():
     assert min(_axis_values(_eject_gcode_rail(180.0), "Z")) >= 0.0
 
@@ -39,6 +51,7 @@ def test_rail_eject_never_sends_negative_z():
         "G1 Y260 F900\n",
         "G1 Z300\n",
         "M211 X0 Y0 Z0\n",
+        "G1 Y5 F30000\n",
     ],
 )
 def test_validator_rejects_out_of_bounds(bad):
