@@ -1145,6 +1145,36 @@ async def edit_printer(
     return {"ok": True, "printer": printer_admin_dict(printer)}
 
 
+@router.post("/printers/{printer_id}/slots/{slot_index}/override")
+async def override_slot(
+    printer_id: int,
+    slot_index: int,
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+    material: str = Form(""),
+    color_hex: str = Form(""),
+):
+    """AMS가 읽지 못한 스풀(비 Bambu 등)의 표시용 재질/색을 관리자가 지정한다.
+    둘 다 비우면 AMS가 보고한 값으로 되돌린다."""
+    material = material.strip()
+    color_hex = color_hex.strip().upper()
+    if len(material) > 50:
+        raise HTTPException(422, "재질 이름이 너무 깁니다")
+    if color_hex and not re.fullmatch(r"#[0-9A-F]{6}", color_hex):
+        raise HTTPException(422, "색상은 #RRGGBB 형식이어야 합니다")
+    slot = (await db.execute(
+        select(FilamentSlot)
+        .where(FilamentSlot.printer_id == printer_id)
+        .where(FilamentSlot.slot_index == slot_index)
+    )).scalar_one_or_none()
+    if slot is None:
+        raise HTTPException(404, "슬롯을 찾을 수 없습니다")
+    slot.override_material = material or None
+    slot.override_color_hex = color_hex or None
+    await db.commit()
+    return {"ok": True}
+
+
 @router.post("/printers/{printer_id}/delete")
 async def delete_printer(
     printer_id: int,

@@ -172,6 +172,11 @@ class FilamentSlot(Base):
     remaining_percent = Column(Integer, nullable=True)
     is_empty = Column(Integer, default=0)
 
+    # 관리자가 직접 지정한 표시용 값 (비 Bambu 스풀은 AMS가 색/재질을 못 읽는다).
+    # 스풀을 뺀 슬롯이 비면 자동으로 지워진다.
+    override_material = Column(String(50), nullable=True)
+    override_color_hex = Column(String(7), nullable=True)
+
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     printer = relationship("Printer")

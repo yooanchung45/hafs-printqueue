@@ -138,13 +138,23 @@ async def sync_printer(db, printer):
 
     # AMS 슬롯 갱신 (기존 삭제 후 재삽입)
     if status.slots:
+        # 관리자가 지정한 표시값은 재삽입 후에도 유지하되, 슬롯이 비면 버린다.
+        overrides = {
+            slot.slot_index: (slot.override_material, slot.override_color_hex)
+            for slot in (await db.execute(
+                select(FilamentSlot).where(FilamentSlot.printer_id == printer.id)
+            )).scalars()
+            if slot.override_material or slot.override_color_hex
+        }
         await db.execute(delete(FilamentSlot).where(FilamentSlot.printer_id == printer.id))
         for s in status.slots:
+            material, color = (None, None) if s.is_empty else overrides.get(s.slot_index, (None, None))
             db.add(FilamentSlot(
                 printer_id=printer.id, slot_index=s.slot_index,
                 material_type=s.material_type, color_hex=s.color_hex,
                 color_name=s.color_name, remaining_percent=s.remaining_percent,
                 is_empty=1 if s.is_empty else 0,
+                override_material=material, override_color_hex=color,
             ))
     await db.commit()
 

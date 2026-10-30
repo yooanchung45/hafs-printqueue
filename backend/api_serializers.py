@@ -64,13 +64,18 @@ def slot_dict(slot) -> dict[str, Any]:
     # classifier so an already-saved hex value is always labelled correctly.
     from printer_client import _color_name
 
+    material = slot.override_material or slot.material_type
+    color_hex = slot.override_color_hex or slot.color_hex
     return {
         "id": slot.id,
         "printer_id": slot.printer_id,
         "slot_index": slot.slot_index,
-        "material_type": slot.material_type,
-        "color_hex": slot.color_hex,
-        "color_name": _color_name(slot.color_hex) or slot.color_name,
+        "material_type": material,
+        "color_hex": color_hex,
+        "color_name": _color_name(color_hex) or slot.color_name,
+        "overridden": bool(slot.override_material or slot.override_color_hex),
+        "reported_material_type": slot.material_type,
+        "reported_color_hex": slot.color_hex,
         "remaining_percent": slot.remaining_percent,
         "is_empty": bool(slot.is_empty),
         "updated_at": _iso(slot.updated_at),

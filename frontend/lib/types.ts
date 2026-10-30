@@ -28,6 +28,9 @@ export interface FilamentSlot {
   color_name: string | null;
   remaining_percent: number | null;
   is_empty: boolean;
+  overridden?: boolean;
+  reported_material_type?: string | null;
+  reported_color_hex?: string | null;
 }
 
 export interface Printer {

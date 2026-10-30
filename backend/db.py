@@ -95,6 +95,19 @@ async def init_db():
                     "eject_use_nozzle BOOLEAN NOT NULL DEFAULT 0"
                 )
             )
+        slot_columns = await conn.run_sync(
+            lambda sync_conn: {
+                column["name"] for column in inspect(sync_conn).get_columns("filament_slots")
+            }
+        )
+        for column, ddl in (
+            ("override_material", "VARCHAR(50)"),
+            ("override_color_hex", "VARCHAR(7)"),
+        ):
+            if column not in slot_columns:
+                await conn.execute(
+                    text(f"ALTER TABLE filament_slots ADD COLUMN {column} {ddl}")
+                )
 
 async def seed_printers():
     """프린터가 하나도 없으면 기본 2대 등록 (개발용)."""

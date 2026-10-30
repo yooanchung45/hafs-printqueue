@@ -1,14 +1,14 @@
 "use client";
 import Link from "next/link";
 import { AlertTriangle, BarChart3, Check, ChevronDown, ChevronUp, Download, Eraser, Lightbulb, MoreHorizontal, Plus, RefreshCw, RotateCcw, Settings, Square, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import posthog from "posthog-js";
 
 import { JobPreview } from "@/components/job-preview";
 import { StatusBadge } from "@/components/status-badge";
 import { api, ApiError, formatBytes, formatDate, printProgress } from "@/lib/api";
-import type { Job, Printer, User } from "@/lib/types";
+import type { FilamentSlot, Job, Printer, User } from "@/lib/types";
 
 type AdminData = { user: User; pending_jobs: Job[]; printers: Printer[] };
 type Transfer = { phase: string; message: string; progress: number | null; bytes_sent?: number; bytes_total?: number };
@@ -284,6 +284,27 @@ function JobDecisionButton({ job, busy, mutate, action }: { job: Job; busy: stri
   </>;
 }
 
+function SlotOverrideRow({ printer, slot, mutate, busy }: { printer: Printer; slot: FilamentSlot; mutate: Mutate; busy: string }) {
+  const [material, setMaterial] = useState(slot.overridden ? slot.material_type ?? "" : "");
+  const [color, setColor] = useState(slot.overridden ? slot.color_hex ?? "" : "");
+  const save = (values: { material: string; color_hex: string }) => mutate(`slot-${printer.id}-${slot.slot_index}`, `/api/admin/printers/${printer.id}/slots/${slot.slot_index}/override`, values);
+  return <div className="slot-override-row">
+    <span className="filament-swatch" style={{ "--filament": slot.color_hex ?? "var(--color-paper-3)" } as React.CSSProperties} />
+    <strong>슬롯 {slot.slot_index + 1}</strong>
+    <span className="admin-note">AMS 인식: {slot.reported_material_type ?? "—"} {slot.reported_color_hex ?? ""}</span>
+    <input className="input compact-select" aria-label={`슬롯 ${slot.slot_index + 1} 재질`} placeholder="재질 (예: PETG 투명)" maxLength={50} value={material} onChange={(event) => setMaterial(event.target.value)} />
+    <input type="color" aria-label={`슬롯 ${slot.slot_index + 1} 색상`} value={/^#[0-9a-fA-F]{6}$/.test(color) ? color : "#808080"} onChange={(event) => setColor(event.target.value.toUpperCase())} />
+    <button type="button" className="button button-secondary button-small" disabled={!!busy || (!material.trim() && !color)} onClick={() => save({ material, color_hex: color })}>적용</button>
+    <button type="button" className="button button-ghost button-small" disabled={!!busy || !slot.overridden} onClick={() => { setMaterial(""); setColor(""); void save({ material: "", color_hex: "" }); }}>되돌리기</button>
+  </div>;
+}
+
+function SlotOverrides({ printer, mutate, busy }: { printer: Printer; mutate: Mutate; busy: string }) {
+  const loaded = printer.slots?.filter((slot) => !slot.is_empty) ?? [];
+  if (!loaded.length) return null;
+  return <section className="card card-body printer-form slot-overrides"><h3>{printer.name} 필라멘트 표시 수정</h3><p className="admin-note">AMS가 읽지 못한 스풀의 재질·색을 직접 지정합니다. 스풀을 빼서 슬롯이 비면 자동으로 원래대로 돌아갑니다.</p>{loaded.map((slot) => <SlotOverrideRow key={`${slot.id}-${slot.overridden}`} printer={printer} slot={slot} mutate={mutate} busy={busy} />)}</section>;
+}
+
 function PrinterSettingsDialog({ open, onClose, printers, mutate, busy }: { open: boolean; onClose: () => void; printers: Printer[]; mutate: Mutate; busy: string }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [add, setAdd] = useState({ name: "", serial: "", ip: "", access_code: "" });
@@ -299,6 +320,6 @@ function PrinterSettingsDialog({ open, onClose, printers, mutate, busy }: { open
 
   return <dialog ref={dialogRef} className="modal printer-settings-dialog" onClose={onClose} onCancel={onClose} onClick={(event) => event.target === event.currentTarget && onClose()}><header className="modal-header"><div><h2>프린터 설정</h2><p>연결 정보와 조명, 출력을 관리합니다.</p></div><button className="icon-button" onClick={onClose} aria-label="프린터 설정 닫기"><X size={18} /></button></header><div className="modal-body"><div className="settings-grid">{printers.map((printer) => {
     const canStop = ["printing", "paused"].includes(printer.status) || (printer.jobs ?? []).some((job) => job.status === "printing");
-    return <form className="card card-body printer-form" key={printer.id} onSubmit={(event) => { event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget)) as Record<string, string>; void mutate(`edit-${printer.id}`, `/api/admin/printers/${printer.id}/edit`, values); }}><h3>{printer.name}</h3><input className="input" name="name" defaultValue={printer.name} aria-label="이름" required /><input className="input mono" name="serial" defaultValue={printer.serial ?? ""} aria-label="시리얼" required /><input className="input mono" name="ip" defaultValue={printer.ip ?? ""} aria-label="IP 주소" required /><input className="input mono" name="access_code" defaultValue={printer.access_code ?? ""} aria-label="액세스 코드" required /><label className="checkbox"><input type="checkbox" name="eject_reversed" value="1" defaultChecked={printer.eject_reversed ?? false} /> 베드 비움 방향 반대로 (뒤쪽 공간이 부족한 기기용)</label><label className="checkbox"><input type="checkbox" name="eject_use_nozzle" value="1" defaultChecked={printer.eject_use_nozzle ?? false} /> 노즐로 베드 비우기 (짧은 출력물용, 노즐이 출력물에 직접 닿을 수 있음)</label><div className="form-actions"><button className="button button-secondary button-small" disabled={!!busy}>저장</button><button type="button" className="button button-ghost button-small" disabled={!!busy} onClick={() => mutate(`light-${printer.id}`, `/api/admin/printers/${printer.id}/light`, { on: 1 })}><Lightbulb size={14} /> 켜기</button><button type="button" className="button button-ghost button-small" disabled={!!busy} onClick={() => mutate(`light-off-${printer.id}`, `/api/admin/printers/${printer.id}/light`, { on: 0 })}>끄기</button><button type="button" className={`button button-danger button-small ${busy === `stop-printer-${printer.id}` ? "button-loading" : ""}`} disabled={!!busy || !canStop} onClick={() => mutate(`stop-printer-${printer.id}`, `/api/admin/printers/${printer.id}/stop`, undefined, `${printer.name}의 출력을 즉시 중단할까요? 진행 중인 작업은 취소 처리됩니다.`)}><Square size={13} /> 출력 중단</button><button type="button" className="button button-danger button-small" disabled={!!busy} onClick={() => mutate(`delete-printer-${printer.id}`, `/api/admin/printers/${printer.id}/delete`, undefined, "출력 기록이 없는 경우에만 삭제됩니다. 계속할까요?")}>삭제</button></div></form>;
+    return <Fragment key={printer.id}><form className="card card-body printer-form" onSubmit={(event) => { event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget)) as Record<string, string>; void mutate(`edit-${printer.id}`, `/api/admin/printers/${printer.id}/edit`, values); }}><h3>{printer.name}</h3><input className="input" name="name" defaultValue={printer.name} aria-label="이름" required /><input className="input mono" name="serial" defaultValue={printer.serial ?? ""} aria-label="시리얼" required /><input className="input mono" name="ip" defaultValue={printer.ip ?? ""} aria-label="IP 주소" required /><input className="input mono" name="access_code" defaultValue={printer.access_code ?? ""} aria-label="액세스 코드" required /><label className="checkbox"><input type="checkbox" name="eject_reversed" value="1" defaultChecked={printer.eject_reversed ?? false} /> 베드 비움 방향 반대로 (뒤쪽 공간이 부족한 기기용)</label><label className="checkbox"><input type="checkbox" name="eject_use_nozzle" value="1" defaultChecked={printer.eject_use_nozzle ?? false} /> 노즐로 베드 비우기 (짧은 출력물용, 노즐이 출력물에 직접 닿을 수 있음)</label><div className="form-actions"><button className="button button-secondary button-small" disabled={!!busy}>저장</button><button type="button" className="button button-ghost button-small" disabled={!!busy} onClick={() => mutate(`light-${printer.id}`, `/api/admin/printers/${printer.id}/light`, { on: 1 })}><Lightbulb size={14} /> 켜기</button><button type="button" className="button button-ghost button-small" disabled={!!busy} onClick={() => mutate(`light-off-${printer.id}`, `/api/admin/printers/${printer.id}/light`, { on: 0 })}>끄기</button><button type="button" className={`button button-danger button-small ${busy === `stop-printer-${printer.id}` ? "button-loading" : ""}`} disabled={!!busy || !canStop} onClick={() => mutate(`stop-printer-${printer.id}`, `/api/admin/printers/${printer.id}/stop`, undefined, `${printer.name}의 출력을 즉시 중단할까요? 진행 중인 작업은 취소 처리됩니다.`)}><Square size={13} /> 출력 중단</button><button type="button" className="button button-danger button-small" disabled={!!busy} onClick={() => mutate(`delete-printer-${printer.id}`, `/api/admin/printers/${printer.id}/delete`, undefined, "출력 기록이 없는 경우에만 삭제됩니다. 계속할까요?")}>삭제</button></div></form><SlotOverrides printer={printer} mutate={mutate} busy={busy} /></Fragment>;
   })}<form className="card card-body printer-form add-printer" onSubmit={(event) => { event.preventDefault(); void mutate("add-printer", "/api/admin/printers/add", add).then(() => setAdd({ name: "", serial: "", ip: "", access_code: "" })); }}><h3><Plus size={16} /> 프린터 추가</h3>{Object.entries(add).map(([key, value]) => <input key={key} className="input mono" required value={value} placeholder={{ name: "표시 이름", serial: "시리얼", ip: "IP 주소", access_code: "액세스 코드" }[key]} onChange={(event) => setAdd((current) => ({ ...current, [key]: event.target.value }))} />)}<button className="button button-primary button-small" disabled={!!busy}>추가</button></form></div></div></dialog>;
 }
