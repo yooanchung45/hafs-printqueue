@@ -17,6 +17,15 @@ MQTT_PORT = 8883
 MQTT_KEEPALIVE = 60
 RECONNECT_DELAY = 20
 OFFLINE_AFTER = 90
+PRINT_START_TIMEOUT = 60
+
+
+@dataclass
+class PrintStart:
+    sequence_id: str
+    filename: str
+    confirmed: bool = False
+    error: str | None = None
 
 
 def _deep_merge(target: dict, update: dict) -> None:
@@ -45,6 +54,8 @@ class PrinterSession:
         self.report_topic = f"device/{serial}/report"
         self.request_topic = f"device/{serial}/request"
         self._lock = threading.RLock()
+        self._start_condition = threading.Condition(self._lock)
+        self._pending_start = None
         self._connected = False
         self._last_report = None
         self._last_error = None
@@ -123,6 +134,23 @@ class PrinterSession:
             if not isinstance(payload, dict):
                 return
             with self._lock:
+                report = payload.get("print") or {}
+                cached_print = self._data.get("print") or {}
+                if report.get("gcode_state") in ("PREPARE", "RUNNING") and cached_print.get("gcode_state") in ("IDLE", "FINISH", "FAILED"):
+                    # Partial startup reports may omit progress from the new job.
+                    cached_print.pop("mc_percent", None)
+                    cached_print.pop("mc_remaining_time", None)
+                pending = self._pending_start
+                if pending is not None:
+                    # Inspect this report, never the merged previous-job cache.
+                    if str(report.get("sequence_id")) == pending.sequence_id and str(report.get("result", "")).upper() in ("FAIL", "FAILED", "ERROR"):
+                        pending.error = str(report.get("reason") or report.get("error") or "프린터가 출력 시작을 거절했습니다")
+                    filename = str(report.get("gcode_file") or "").replace("\\", "/").rsplit("/", 1)[-1]
+                    if report.get("gcode_state") == "PAUSE" and (not filename or filename == pending.filename):
+                        pending.error = "프린터가 일시 정지되었습니다. 프린터 화면을 확인해 주세요."
+                    if report.get("gcode_state") in ("PREPARE", "RUNNING") and (not filename or filename == pending.filename):
+                        pending.confirmed = True
+                    self._start_condition.notify_all()
                 _deep_merge(self._data, payload)
                 self._last_report = time.monotonic()
                 self._last_error = None
@@ -171,13 +199,18 @@ class PrinterSession:
 
     def start_print(self, filename: str, ams_slot: int):
         """Start an uploaded 3MF using the already-connected MQTT session."""
+        pending = PrintStart(str(time.time_ns()), filename)
+        with self._lock:
+            if (self._data.get("print") or {}).get("gcode_state") in ("PREPARE", "RUNNING", "PAUSE"):
+                raise RuntimeError("프린터가 이미 사용 중입니다. 프린터 화면을 확인해 주세요.")
+            self._pending_start = pending
         self.publish({
             "print": {
                 "command": "project_file",
                 "param": "Metadata/plate_1.gcode",
                 "file": filename,
                 "url": f"ftp:///{filename}",
-                "sequence_id": str(time.time_ns()),
+                "sequence_id": pending.sequence_id,
                 "bed_leveling": True,
                 "bed_type": "textured_plate",
                 "flow_cali": True,
@@ -188,6 +221,29 @@ class PrinterSession:
                 "skip_objects": None,
             }
         })
+        return pending
+
+    def wait_for_print_start(self, pending: PrintStart, timeout=PRINT_START_TIMEOUT):
+        """Wait for fresh printer activity; MQTT publish alone is not success."""
+        deadline = time.monotonic() + timeout
+        try:
+            with self._start_condition:
+                while True:
+                    if pending.error:
+                        raise RuntimeError(f"출력 시작 실패: {pending.error}")
+                    if pending.confirmed:
+                        return
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("파일은 전송되었지만 프린터의 출력 시작을 확인하지 못했습니다. 프린터 화면과 파일을 확인한 뒤 다시 시도해 주세요.")
+                    if not self._connected:
+                        raise ConnectionError("출력 시작 확인 중 프린터 연결이 끊겼습니다. 프린터 화면을 확인해 주세요.")
+                    self._start_condition.wait(min(remaining, 1))
+        finally:
+            with self._lock:
+                if self._pending_start is pending:
+                    self._pending_start = None
+
 
     def snapshot(self) -> GatewaySnapshot:
         now = time.monotonic()

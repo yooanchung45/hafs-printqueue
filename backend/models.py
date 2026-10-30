@@ -98,6 +98,7 @@ class Job(Base):
     created_at = Column(DateTime, server_default=func.now())
     approved_at = Column(DateTime, nullable=True)
     started_at = Column(DateTime, nullable=True)
+    print_confirmed_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
     user_notes = Column(Text, nullable=True)

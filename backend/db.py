@@ -73,6 +73,8 @@ async def init_db():
                     "failure_acknowledged BOOLEAN NOT NULL DEFAULT 0"
                 )
             )
+        if "print_confirmed_at" not in job_columns:
+            await conn.execute(text("ALTER TABLE jobs ADD COLUMN print_confirmed_at DATETIME"))
         await conn.execute(
             text("UPDATE users SET role = 'USER' WHERE role IN ('STUDENT', 'student')")
         )

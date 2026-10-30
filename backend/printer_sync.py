@@ -9,11 +9,6 @@ from notifications import notify_printer_error, notify_print_completed
 
 logger = logging.getLogger("printer_sync")
 
-# The MQTT cache can still contain the previous print's FINISH/IDLE report
-# immediately after a new start command.  Do not let that stale terminal state
-# complete the new job before the printer has had time to report its new state.
-STARTUP_TERMINAL_GRACE_SECONDS = 45
-
 _STATE_MAP = {
     "IDLE": PrinterStatus.IDLE, "FINISH": PrinterStatus.IDLE,
     "RUNNING": PrinterStatus.PRINTING, "PREPARE": PrinterStatus.PRINTING,
@@ -23,16 +18,6 @@ _STATE_MAP = {
 
 def _utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _is_startup_terminal_report(status, started_at, now=None) -> bool:
-    if not status.online or started_at is None:
-        return False
-    if status.state not in ("IDLE", "FINISH", "FAILED"):
-        return False
-    now = now or _utcnow()
-    age = (now - started_at).total_seconds()
-    return 0 <= age < STARTUP_TERMINAL_GRACE_SECONDS
 
 
 def _printer_status(state: str, has_current_job: bool) -> PrinterStatus:
@@ -48,11 +33,9 @@ def _printer_status(state: str, has_current_job: bool) -> PrinterStatus:
     return _STATE_MAP.get(state, PrinterStatus.IDLE)
 
 
-def _print_finished(status, previous_status: PrinterStatus, previous_progress: int | None, has_current_job: bool, started_at=None) -> bool:
+def _print_finished(status, previous_status: PrinterStatus, previous_progress: int | None, has_current_job: bool, confirmed_at=None) -> bool:
     """Recognize a completed print even after a brief MQTT disconnect."""
-    if not status.online or not has_current_job:
-        return False
-    if _is_startup_terminal_report(status, started_at):
+    if not status.online or not has_current_job or confirmed_at is None:
         return False
     if status.state == "FINISH":
         return True
@@ -88,8 +71,14 @@ async def sync_printer(db, printer):
         return
 
     # 프린터 상태 갱신
-    startup_terminal = _is_startup_terminal_report(
-        status, current_job.started_at if current_job is not None else None
+    if (current_job is not None and current_job.status == JobStatus.PRINTING
+            and status.online and status.state in ("PREPARE", "RUNNING", "PAUSE")
+            and current_job.print_confirmed_at is None):
+        current_job.print_confirmed_at = _utcnow()
+    startup_terminal = (
+        current_job is not None and current_job.status == JobStatus.PRINTING
+        and current_job.print_confirmed_at is None and status.online
+        and status.state in ("IDLE", "FINISH", "FAILED")
     )
     if startup_terminal:
         # Preserve the newly-recorded printing state and zero progress while
@@ -120,7 +109,7 @@ async def sync_printer(db, printer):
         previous_status,
         previous_progress,
         has_current_job=printer.current_job_id is not None,
-        started_at=current_job.started_at if current_job is not None else None,
+        confirmed_at=current_job.print_confirmed_at if current_job is not None else None,
     )
     completed_job = None
     completed_owner = None

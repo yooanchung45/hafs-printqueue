@@ -64,6 +64,7 @@ def _mark_print_started(job, printer):
     """Record a new print without leaking the previous print's progress."""
     job.status = JobStatus.PRINTING
     job.started_at = _utcnow()
+    job.print_confirmed_at = job.started_at
     job.queue_position = None
     printer.status = PrinterStatus.PRINTING
     printer.current_job_id = job.id
@@ -82,66 +83,42 @@ async def _ensure_loaded_filament_slot(db: AsyncSession, printer_id: int, slot_i
 
 
 def _bambulabs_start_print(ip, access_code, serial, name, file_path, remote_name, ams_slot):
-    """Legacy FTPS/print bridge; suspends the singleton MQTT session while active."""
-    import time
-    import bambulabs_api as _bl
+    """Compatibility route using the same confirmed MQTT startup as transfers."""
     from printer_gateway import gateway
 
-    gateway.remove(serial)
-    pr = _bl.Printer(ip, access_code, serial)
+    session = gateway.configure(ip, access_code, serial, name)
+    slot = int(ams_slot)
+    # Patch AMS slot references (S0A → S{slot}A, T0 → T{slot}) when slot != 0.
+    # For .gcode: simple string replace in a temp file.
+    # For .3mf: repack the archive via patch_ams_slot().
+    upload_path = file_path
+    tmp_path = None
+    if slot != 0:
+        if file_path.endswith('.gcode'):
+            import tempfile
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as gf:
+                gcode = gf.read()
+            gcode = gcode.replace('M620 S0A', f'M620 S{slot}A')
+            gcode = gcode.replace('M621 S0A', f'M621 S{slot}A')
+            gcode = re.sub(r'(?m)^(\s*)T0(\s|$)', rf'\1T{slot}\2', gcode)
+            tmp = tempfile.NamedTemporaryFile(
+                mode='w', suffix='.gcode', delete=False, encoding='utf-8'
+            )
+            tmp.write(gcode)
+            tmp.close()
+            tmp_path = upload_path = tmp.name
+        elif file_path.endswith('.3mf'):
+            from make_3mf import patch_ams_slot
+            tmp_path = upload_path = patch_ams_slot(file_path, slot)
 
     try:
-        pr.mqtt_start()
-        time.sleep(6)
-        slot = int(ams_slot)
-
-        # Patch AMS slot references (S0A → S{slot}A, T0 → T{slot}) when slot != 0.
-        # For .gcode: simple string replace in a temp file.
-        # For .3mf: repack the archive via patch_ams_slot().
-        upload_path = file_path
-        tmp_path = None
-        if slot != 0:
-            if file_path.endswith('.gcode'):
-                import tempfile
-                with open(file_path, 'r', encoding='utf-8', errors='replace') as gf:
-                    gcode = gf.read()
-                gcode = gcode.replace('M620 S0A', f'M620 S{slot}A')
-                gcode = gcode.replace('M621 S0A', f'M621 S{slot}A')
-                gcode = re.sub(r'(?m)^(\s*)T0(\s|$)', rf'\1T{slot}\2', gcode)
-                tmp = tempfile.NamedTemporaryFile(
-                    mode='w', suffix='.gcode', delete=False, encoding='utf-8'
-                )
-                tmp.write(gcode)
-                tmp.close()
-                tmp_path = upload_path = tmp.name
-            elif file_path.endswith('.3mf'):
-                from make_3mf import patch_ams_slot
-                tmp_path = upload_path = patch_ams_slot(file_path, slot)
-
-        try:
-            with open(upload_path, "rb") as f:
-                pr.upload_file(f, remote_name)
-        finally:
-            if tmp_path:
-                os.unlink(tmp_path)
-        time.sleep(2)
-
-        ok = pr.start_print(remote_name, 1, use_ams=True, ams_mapping=[slot])
-        if not ok:
-            return "print_rejected"
-
-        time.sleep(6)
-        st = str(pr.get_state() or "").upper()
-        if st in ("FAILED", "PAUSE"):
-            return "print_paused"
-
+        _upload_with_progress(ip, access_code, upload_path, remote_name, lambda *_: None)
+        pending = session.start_print(remote_name, slot)
+        session.wait_for_print_start(pending)
         return "ok"
     finally:
-        try:
-            pr.mqtt_stop()
-        except Exception:
-            pass
-        gateway.configure(ip, access_code, serial, name)
+        if tmp_path:
+            os.unlink(tmp_path)
 
 
 def _upload_with_progress(ip, access_code, file_path, remote_name, progress):
@@ -244,12 +221,9 @@ async def _run_print_transfer(transfer_id: str, job_id: int, requested_slot: int
             session = gateway.get(printer.serial)
             if session is None or not session.snapshot().connected:
                 raise ConnectionError("파일 전송 후 프린터 연결이 끊겼습니다. 파일은 전송되었지만 출력은 시작하지 않았습니다.")
-            session.start_print(remote_name, slot)
-            # QoS 0 publish has no broker acknowledgement. Catch an immediate
-            # disconnect before recording the job as printing.
-            await asyncio.sleep(0.5)
-            if not session.snapshot().connected:
-                raise ConnectionError("출력 시작 명령을 보내는 동안 프린터 연결이 끊겼습니다. 프린터 화면을 확인해 주세요.")
+            pending = session.start_print(remote_name, slot)
+            _set_transfer(transfer_id, phase="starting", message="프린터의 출력 시작 확인 중", progress=95)
+            await loop.run_in_executor(None, session.wait_for_print_start, pending)
 
             job.ams_slot = slot
             _mark_print_started(job, printer)
@@ -691,7 +665,7 @@ async def start_job(
         notify_print_started(job.filename, printer.name)
         return {"ok": True, "job": job_dict(job, printer=printer)}
 
-    # 실제 출력: 블로킹 bambulabs 작업을 스레드 풀에서 실행
+    # 실제 출력: 파일 전송과 프린터 시작 확인을 스레드 풀에서 실행
     remote_name = os.path.basename(job.file_path)
     try:
         loop = asyncio.get_running_loop()
