@@ -182,7 +182,8 @@ def _color_name(hex6):
     if hue < 45:
         return "갈색" if value < 0.65 else "주황"
     if hue < 70:
-        return "노랑"
+        # 어두운 황록/올리브 계열은 노랑이 아니라 갈색으로 보인다.
+        return "갈색" if value < 0.6 else "노랑"
     if hue < 165:
         return "초록"
     if hue < 200:
