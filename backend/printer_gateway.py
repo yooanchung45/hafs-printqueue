@@ -197,7 +197,7 @@ class PrinterSession:
             }
         })
 
-    def start_print(self, filename: str, ams_slot: int):
+    def start_print(self, filename: str, ams_slot: int, plate_gcode: str = "Metadata/plate_1.gcode"):
         """Start an uploaded 3MF using the already-connected MQTT session."""
         pending = PrintStart(str(time.time_ns()), filename)
         with self._lock:
@@ -207,7 +207,7 @@ class PrinterSession:
         self.publish({
             "print": {
                 "command": "project_file",
-                "param": "Metadata/plate_1.gcode",
+                "param": plate_gcode,
                 "file": filename,
                 "url": f"ftp:///{filename}",
                 "sequence_id": pending.sequence_id,

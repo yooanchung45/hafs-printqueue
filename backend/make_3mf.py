@@ -168,6 +168,20 @@ def package_gcode_as_3mf(
     return str(out_path)
 
 
+_PLATE_GCODE = re.compile(r'Metadata/plate_\d+\.gcode')
+
+
+def plate_gcode_name(threemf_path: str) -> str:
+    """Gcode entry the printer must be told to run (Bambu Studio names it after
+    the sliced plate, so a plate-2 export holds plate_2.gcode, not plate_1)."""
+    try:
+        with zipfile.ZipFile(threemf_path, 'r') as zf:
+            names = sorted(n for n in zf.namelist() if _PLATE_GCODE.fullmatch(n))
+    except (zipfile.BadZipFile, OSError):
+        names = []
+    return names[0] if names else 'Metadata/plate_1.gcode'
+
+
 def patch_ams_slot(threemf_path: str, slot: int) -> str:
     """Replace AMS slot 0 references with the correct slot in a .3mf archive.
 
@@ -182,8 +196,9 @@ def patch_ams_slot(threemf_path: str, slot: int) -> str:
         for name in zin.namelist():
             entries[name] = zin.read(name)
 
-    if 'Metadata/plate_1.gcode' in entries:
-        gcode = entries['Metadata/plate_1.gcode'].decode('utf-8', errors='replace')
+    plate = plate_gcode_name(threemf_path)
+    if plate in entries:
+        gcode = entries[plate].decode('utf-8', errors='replace')
         gcode = gcode.replace('M620 S0A', f'M620 S{slot}A')
         gcode = gcode.replace('M621 S0A', f'M621 S{slot}A')
         # T0 selects the physical AMS slot to pull filament from — must move
@@ -191,8 +206,8 @@ def patch_ams_slot(threemf_path: str, slot: int) -> str:
         # no matter what the wrapper says.
         gcode = re.sub(r'(?m)^(\s*)T0(\s|$)', rf'\1T{slot}\2', gcode)
         gcode_bytes = gcode.encode('utf-8')
-        entries['Metadata/plate_1.gcode'] = gcode_bytes
-        entries['Metadata/plate_1.gcode.md5'] = (
+        entries[plate] = gcode_bytes
+        entries[plate + '.md5'] = (
             hashlib.md5(gcode_bytes).hexdigest().upper().encode()
         )
 

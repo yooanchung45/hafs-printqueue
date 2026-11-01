@@ -82,6 +82,14 @@ async def _ensure_loaded_filament_slot(db: AsyncSession, printer_id: int, slot_i
         raise HTTPException(422, "선택한 필라멘트가 현재 슬롯에 없습니다. 상태를 동기화해 주세요.")
 
 
+def _plate_gcode(path):
+    """3mf 안의 실제 plate gcode 경로 (plate_2 등). 3mf가 아니면 plate_1."""
+    if not str(path).endswith(".3mf"):
+        return "Metadata/plate_1.gcode"
+    from make_3mf import plate_gcode_name
+    return plate_gcode_name(path)
+
+
 def _bambulabs_start_print(ip, access_code, serial, name, file_path, remote_name, ams_slot):
     """Compatibility route using the same confirmed MQTT startup as transfers."""
     from printer_gateway import gateway
@@ -113,7 +121,7 @@ def _bambulabs_start_print(ip, access_code, serial, name, file_path, remote_name
 
     try:
         _upload_with_progress(ip, access_code, upload_path, remote_name, lambda *_: None)
-        pending = session.start_print(remote_name, slot)
+        pending = session.start_print(remote_name, slot, _plate_gcode(upload_path))
         session.wait_for_print_start(pending)
         return "ok"
     finally:
@@ -221,7 +229,7 @@ async def _run_print_transfer(transfer_id: str, job_id: int, requested_slot: int
             session = gateway.get(printer.serial)
             if session is None or not session.snapshot().connected:
                 raise ConnectionError("파일 전송 후 프린터 연결이 끊겼습니다. 파일은 전송되었지만 출력은 시작하지 않았습니다.")
-            pending = session.start_print(remote_name, slot)
+            pending = session.start_print(remote_name, slot, _plate_gcode(upload_path))
             _set_transfer(transfer_id, phase="starting", message="프린터의 출력 시작 확인 중", progress=95)
             await loop.run_in_executor(None, session.wait_for_print_start, pending)
 
