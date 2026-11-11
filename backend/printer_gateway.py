@@ -63,6 +63,8 @@ class PrinterSession:
         self._started = False
         # sequence_id -> the printer's reply to a command we sent (result/reason).
         self._replies: dict[str, dict] = {}
+        # Recent command echoes/acks from the printer (raw, newest last).
+        self._command_log: list[dict] = []
 
         client_id = f"hafs-{serial}"[:23]
         self.client = mqtt.Client(
@@ -162,6 +164,16 @@ class PrinterSession:
                     }
                     if len(self._replies) > 50:
                         self._replies.pop(next(iter(self._replies)))
+                # Keep every command echo/ack (not the periodic push_status) for diagnosis.
+                for section in ("print", "system"):
+                    part = payload.get(section)
+                    if isinstance(part, dict) and part.get("command") and part.get("command") != "push_status":
+                        self._command_log.append({
+                            "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                            "section": section,
+                            **{k: v for k, v in part.items() if k not in ("ams", "hms", "vt_tray")},
+                        })
+                        del self._command_log[:-40]
                 _deep_merge(self._data, payload)
                 self._last_report = time.monotonic()
                 self._last_error = None
@@ -255,6 +267,44 @@ class PrinterSession:
         seq = str(time.time_ns())
         self.publish({"print": {"sequence_id": seq, "command": "resume", "param": ""}})
         return seq
+
+    def set_ams_tray(self, slot: int, tray_info_idx: str, tray_type: str, color_rgba: str,
+                     temp_min: int, temp_max: int) -> str:
+        """Write filament info for an AMS slot on the printer (same as editing it in Studio)."""
+        seq = str(time.time_ns())
+        slot = int(slot)
+        self.publish({
+            "print": {
+                "sequence_id": seq,
+                "command": "ams_filament_setting",
+                "ams_id": slot // 4,
+                "tray_id": slot % 4,
+                "slot_id": slot % 4,
+                "tray_info_idx": tray_info_idx,
+                "tray_color": color_rgba,
+                "nozzle_temp_min": int(temp_min),
+                "nozzle_temp_max": int(temp_max),
+                "tray_type": tray_type,
+            }
+        })
+        return seq
+
+    def set_auto_refill(self, enabled: bool) -> str:
+        """AMS filament backup / Auto Refill on or off."""
+        seq = str(time.time_ns())
+        self.publish({
+            "print": {"sequence_id": seq, "command": "print_option", "auto_switch_filament": bool(enabled)}
+        })
+        return seq
+
+    def ams_control(self, param: str) -> str:
+        seq = str(time.time_ns())
+        self.publish({"print": {"sequence_id": seq, "command": "ams_control", "param": param}})
+        return seq
+
+    def command_log(self) -> list[dict]:
+        with self._lock:
+            return copy.deepcopy(self._command_log)
 
     def reply(self, sequence_id: str) -> dict | None:
         with self._lock:

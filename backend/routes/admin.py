@@ -1093,6 +1093,143 @@ async def swap_filament(
 
 
 # ============================================================
+# 프린터 직접 제어 (관리자 진단용 API, 화면 버튼 없음)
+# ============================================================
+
+def _live_view(snapshot) -> dict:
+    values = (snapshot.data or {}).get("print") or {}
+    ams = values.get("ams") or {}
+    home_flag = values.get("home_flag")
+    try:
+        auto_refill = bool((int(home_flag) >> 10) & 1)
+    except (TypeError, ValueError):
+        auto_refill = None
+    trays = []
+    for unit in ams.get("ams", []) or []:
+        for tray in unit.get("tray", []) or []:
+            trays.append({"ams": unit.get("id"), **tray})
+    return {
+        "connected": snapshot.connected,
+        "online": snapshot.online,
+        "last_report_age": snapshot.last_report_age,
+        "gcode_state": values.get("gcode_state"),
+        "print_error": values.get("print_error"),
+        "hms": values.get("hms"),
+        "mc_percent": values.get("mc_percent"),
+        "nozzle_temper": values.get("nozzle_temper"),
+        "nozzle_target_temper": values.get("nozzle_target_temper"),
+        "ams_status": values.get("ams_status"),
+        "tray_now": ams.get("tray_now"),
+        "tray_tar": ams.get("tray_tar"),
+        "home_flag": home_flag,
+        "auto_refill_guess": auto_refill,
+        "trays": trays,
+    }
+
+
+async def _admin_session(db: AsyncSession, printer_id: int):
+    from printer_gateway import gateway
+    printer = (await db.execute(select(Printer).where(Printer.id == printer_id))).scalar_one_or_none()
+    if printer is None:
+        raise HTTPException(404, "프린터를 찾을 수 없습니다")
+    session = gateway.get(printer.serial) if printer.serial else None
+    if session is None or not session.snapshot().connected:
+        raise HTTPException(409, "프린터 MQTT 연결이 없습니다")
+    return session
+
+
+async def _command_result(session, seq: str, wait: float) -> dict:
+    deadline = time.monotonic() + wait
+    reply = None
+    while time.monotonic() < deadline:
+        reply = session.reply(seq)
+        if reply:
+            break
+        await asyncio.sleep(0.5)
+    try:
+        session.request_full_status()
+    except Exception:
+        pass
+    await asyncio.sleep(2)
+    return {
+        "sequence_id": seq,
+        "reply": reply,
+        "after": _live_view(session.snapshot()),
+        "command_log": session.command_log()[-10:],
+    }
+
+
+@router.get("/printers/{printer_id}/live")
+async def printer_live_state(
+    printer_id: int,
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """프린터 MQTT 캐시의 실시간 상태와 최근 명령 응답 원문."""
+    session = await _admin_session(db, printer_id)
+    return {"live": _live_view(session.snapshot()), "command_log": session.command_log()}
+
+
+@router.post("/printers/{printer_id}/ams-tray-setting")
+async def printer_ams_tray_setting(
+    printer_id: int,
+    slot: int = Form(..., ge=0, le=15),
+    tray_info_idx: str = Form(..., max_length=16),
+    tray_type: str = Form(..., max_length=16),
+    color_hex: str = Form(...),
+    temp_min: int = Form(..., ge=150, le=320),
+    temp_max: int = Form(..., ge=150, le=320),
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """AMS 슬롯의 필라멘트 정보(재질/색/온도)를 프린터에 직접 쓴다."""
+    color = color_hex.strip().lstrip("#").upper()
+    if not re.fullmatch(r"[0-9A-F]{6}([0-9A-F]{2})?", color):
+        raise HTTPException(422, "색상은 RRGGBB 또는 RRGGBBAA 형식이어야 합니다")
+    if len(color) == 6:
+        color += "FF"
+    if temp_min > temp_max:
+        raise HTTPException(422, "최저 온도가 최고 온도보다 높습니다")
+    session = await _admin_session(db, printer_id)
+    seq = session.set_ams_tray(slot, tray_info_idx.strip(), tray_type.strip(), color, temp_min, temp_max)
+    return await _command_result(session, seq, wait=6)
+
+
+@router.post("/printers/{printer_id}/auto-refill")
+async def printer_auto_refill(
+    printer_id: int,
+    enabled: bool = Form(...),
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """AMS 자동 전환(AMS filament backup / Auto Refill) 설정."""
+    session = await _admin_session(db, printer_id)
+    seq = session.set_auto_refill(enabled)
+    return await _command_result(session, seq, wait=6)
+
+
+@router.post("/printers/{printer_id}/resume")
+async def printer_resume(
+    printer_id: int,
+    method: str = Form("print"),
+    clear_error: bool = Form(True),
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """일시정지된 출력 재개. method=print 는 resume, method=ams 는 ams_control resume."""
+    if method not in ("print", "ams"):
+        raise HTTPException(422, "method는 print 또는 ams 입니다")
+    session = await _admin_session(db, printer_id)
+    values = (session.snapshot().data or {}).get("print") or {}
+    error = int(values.get("print_error") or 0)
+    if clear_error and error:
+        session.clear_print_error(values.get("subtask_id"), error)
+        await asyncio.sleep(1)
+    seq = session.resume_print() if method == "print" else session.ams_control("resume")
+    return await _command_result(session, seq, wait=15)
+
+
+# ============================================================
 # 보고서 (PDF + Excel)
 # ============================================================
 
