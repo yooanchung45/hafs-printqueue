@@ -318,12 +318,22 @@ async def admin_dashboard(
     def serialize(job):
         return job_dict(job, owner=users.get(job.user_id))
 
+    from filament_swap import live_pause_info
+
+    def pause_info(printer):
+        try:
+            return live_pause_info(printer)
+        except Exception as exc:
+            logger.debug("일시정지 정보 읽기 실패 %s: %s", printer.name, exc)
+            return None
+
     return {
         "user": user_dict(user),
         "pending_jobs": [serialize(job) for job in pending_jobs],
         "printers": [
             {
                 **printer_admin_dict(printer, slots_by_printer.get(printer.id, [])),
+                "pause_info": pause_info(printer),
                 "jobs": [serialize(job) for job in printer_jobs[printer.id]],
                 "failed_jobs": [
                     serialize(job) for job in failed_by_printer.get(printer.id, [])
@@ -1007,6 +1017,79 @@ async def stop_printer(
         "printer": printer_admin_dict(printer),
         "job": job_dict(job, printer=printer) if job is not None else None,
     }
+
+
+async def _run_filament_swap(transfer_id: str, printer_id: int, serial: str, target_slot: int, old_slot_hint):
+    """필라멘트 교체 + 재개를 요청과 분리해 실행하고 진행 상태를 transfer로 노출한다."""
+    from filament_swap import run_swap
+    from printer_gateway import gateway
+
+    def report(phase, message, progress):
+        _set_transfer(transfer_id, phase=phase, message=message, progress=progress)
+
+    try:
+        session = gateway.get(serial)
+        if session is None or not session.snapshot().connected:
+            raise ConnectionError("프린터 MQTT 연결이 없습니다. 상태를 동기화한 뒤 다시 시도해 주세요.")
+        loop = asyncio.get_running_loop()
+        message = await loop.run_in_executor(
+            None, lambda: run_swap(session, target_slot, report, old_slot_hint=old_slot_hint)
+        )
+        async with async_session_maker() as db:
+            from printer_sync import sync_all
+            await sync_all(db)
+        _set_transfer(transfer_id, phase="done", message=message, progress=100)
+    except Exception as exc:
+        logger.exception("필라멘트 교체 실패: printer=%s slot=%s", printer_id, target_slot)
+        _set_transfer(transfer_id, phase="error", message=str(exc), progress=None)
+    finally:
+        with _transfer_lock:
+            _active_printers.discard(printer_id)
+
+
+@router.post("/printers/{printer_id}/swap-filament")
+async def swap_filament(
+    printer_id: int,
+    ams_slot: int = Form(..., ge=0, le=15),
+    user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """필라멘트 소진 등으로 일시정지된 출력을 다른 AMS 슬롯 필라멘트로 이어서 출력한다."""
+    printer = (await db.execute(
+        select(Printer).where(Printer.id == printer_id)
+    )).scalar_one_or_none()
+    if printer is None:
+        raise HTTPException(404, "프린터를 찾을 수 없습니다")
+    if not (printer.ip and printer.access_code and printer.serial):
+        raise HTTPException(409, "프린터 연결 정보가 없습니다")
+    if printer.status != PrinterStatus.PAUSED:
+        raise HTTPException(409, "일시정지된 프린터에서만 필라멘트를 바꿔 이어서 출력할 수 있습니다")
+    await _ensure_loaded_filament_slot(db, printer.id, ams_slot)
+
+    old_slot_hint = None
+    if printer.current_job_id is not None:
+        job = (await db.execute(
+            select(Job).where(Job.id == printer.current_job_id)
+        )).scalar_one_or_none()
+        old_slot_hint = job.ams_slot if job is not None else None
+
+    with _transfer_lock:
+        if printer.id in _active_printers:
+            return JSONResponse({"detail": "이 프린터에서 이미 다른 작업을 처리 중입니다."}, status_code=409)
+        transfer_id = uuid.uuid4().hex
+        _active_printers.add(printer.id)
+        _transfers[transfer_id] = {
+            "id": transfer_id,
+            "printer_id": printer.id,
+            "kind": "filament_swap",
+            "phase": "preparing",
+            "message": "필라멘트 교체 준비 중",
+            "progress": 0,
+        }
+    asyncio.create_task(_run_filament_swap(
+        transfer_id, printer.id, printer.serial, ams_slot, old_slot_hint
+    ))
+    return JSONResponse({"transfer_id": transfer_id}, status_code=202)
 
 
 # ============================================================

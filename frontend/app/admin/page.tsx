@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { AlertTriangle, BarChart3, Check, ChevronDown, ChevronUp, Download, Eraser, Lightbulb, MoreHorizontal, Plus, RefreshCw, RotateCcw, Settings, Square, X } from "lucide-react";
+import { AlertTriangle, BarChart3, Check, ChevronDown, ChevronUp, Download, Eraser, Lightbulb, MoreHorizontal, Pause, Plus, RefreshCw, Repeat, RotateCcw, Settings, Square, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import posthog from "posthog-js";
@@ -11,7 +11,7 @@ import { api, ApiError, formatBytes, formatDate, printProgress } from "@/lib/api
 import type { FilamentSlot, Job, Printer, User } from "@/lib/types";
 
 type AdminData = { user: User; pending_jobs: Job[]; printers: Printer[] };
-type Transfer = { phase: string; message: string; progress: number | null; bytes_sent?: number; bytes_total?: number };
+type Transfer = { phase: string; message: string; progress: number | null; kind?: string; bytes_sent?: number; bytes_total?: number };
 
 function formData(values: Record<string, string | number | null | undefined>) {
   const form = new FormData();
@@ -80,6 +80,33 @@ export default function AdminPage() {
     finally { setBusy(""); }
   };
 
+  const pollTransfer = (transferId: string, onDone?: () => void) => {
+    const poll = window.setInterval(async () => {
+      try {
+        const state = await api<Transfer>(`/api/admin/transfers/${transferId}`);
+        setTransfer(state);
+        if (["done", "error"].includes(state.phase)) {
+          window.clearInterval(poll);
+          if (state.phase === "done") onDone?.();
+          setBusy("");
+          await load();
+        }
+      } catch { window.clearInterval(poll); setBusy(""); }
+    }, 500);
+  };
+
+  const swapFilament = async (printer: Printer, slot: string) => {
+    const chosen = printer.slots?.find((item) => String(item.slot_index) === slot);
+    const label = chosen ? `${chosen.color_name ?? "색상 미확인"} · ${chosen.material_type ?? "재질 미확인"} (슬롯 ${chosen.slot_index + 1})` : `슬롯 ${Number(slot) + 1}`;
+    if (!window.confirm(`${printer.name}에 ${label} 필라멘트를 넣고 일시정지된 출력을 이어서 진행합니다. 프린터가 남은 필라멘트를 빼고 새 필라멘트를 넣은 뒤 퍼지합니다. 계속할까요?`)) return;
+    setBusy(`swap-${printer.id}`); setError("");
+    try {
+      const result = await api<{ transfer_id: string }>(`/api/admin/printers/${printer.id}/swap-filament`, { method: "POST", body: formData({ ams_slot: slot }) });
+      setTransfer({ phase: "preparing", message: "필라멘트 교체 준비 중", progress: 0 });
+      pollTransfer(result.transfer_id, () => posthog.capture("admin_filament_swapped"));
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "필라멘트 교체를 시작하지 못했습니다."); setBusy(""); }
+  };
+
   const startTransfer = async (job: Job, slot: string) => {
     setBusy(`start-${job.id}`); setError("");
     try {
@@ -96,18 +123,7 @@ export default function AdminPage() {
       }
       const result = await api<{ transfer_id: string }>(`/api/admin/jobs/${job.id}/start-transfer`, { method: "POST", body: formData({ ams_slot: slot }) });
       setTransfer({ phase: "preparing", message: "파일 전송 준비 중", progress: 0 });
-      const poll = window.setInterval(async () => {
-        try {
-          const state = await api<Transfer>(`/api/admin/transfers/${result.transfer_id}`);
-          setTransfer(state);
-          if (["done", "error"].includes(state.phase)) {
-            window.clearInterval(poll);
-            if (state.phase === "done") posthog.capture("admin_print_started");
-            setBusy("");
-            await load();
-          }
-        } catch { window.clearInterval(poll); setBusy(""); }
-      }, 500);
+      pollTransfer(result.transfer_id, () => posthog.capture("admin_print_started"));
     } catch (caught) { setError(caught instanceof Error ? caught.message : "전송을 시작하지 못했습니다."); setBusy(""); }
   };
 
@@ -120,10 +136,10 @@ export default function AdminPage() {
         {data.pending_jobs.length ? <div className="card table-wrap admin-approval-scroll"><table className="table"><thead><tr><th>작업</th><th>신청</th><th>프린터</th><th>메모</th><th>처리</th></tr></thead><tbody>{data.pending_jobs.map((job) => <tr key={job.id}><td><JobName job={job} /></td><td className="muted">{formatDate(job.created_at)}</td><td><select className="select compact-select" defaultValue={job.printer_id} onChange={(event) => mutate(`assign-${job.id}`, `/api/admin/jobs/${job.id}/reassign`, { printer_id: event.target.value })}>{data.printers.map((printer) => <option value={printer.id} key={printer.id}>{printer.name}</option>)}</select></td><td><div className="admin-note">{job.admin_notes ? <span className="admin-note-alert">⚠ {job.admin_notes}</span> : null}{job.user_notes ? <span className="muted">{job.user_notes}</span> : null}{!job.admin_notes && !job.user_notes ? <span className="muted">—</span> : null}</div></td><td><div className="table-actions"><button className="button button-primary button-small" disabled={!!busy} onClick={() => mutate(`approve-${job.id}`, `/api/admin/jobs/${job.id}/approve`)}>승인</button><JobDecisionButton job={job} busy={busy} mutate={mutate} action="reject" /><JobPreview job={job} admin /><a className="icon-button" href={`/api/admin/jobs/${job.id}/download`} aria-label="파일 다운로드"><Download size={16} /></a></div></td></tr>)}</tbody></table></div> : <div className="admin-empty">승인을 기다리는 작업이 없습니다.</div>}
       </section>
 
-      <section className="admin-section"><div className="section-heading"><div><h2>프린터와 대기열</h2><p>프린터별 작업을 이동하고 출력을 관리합니다.</p></div></div><div className="admin-printer-grid">{data.printers.map((printer) => <AdminPrinter key={printer.id} printer={printer} printers={data.printers} busy={busy} mutate={mutate} startTransfer={startTransfer} />)}</div></section>
+      <section className="admin-section"><div className="section-heading"><div><h2>프린터와 대기열</h2><p>프린터별 작업을 이동하고 출력을 관리합니다.</p></div></div><div className="admin-printer-grid">{data.printers.map((printer) => <AdminPrinter key={printer.id} printer={printer} printers={data.printers} busy={busy} mutate={mutate} startTransfer={startTransfer} swapFilament={swapFilament} />)}</div></section>
 
       <PrinterSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} printers={data.printers} mutate={mutate} busy={busy} />
-      {completionNotice ? <div className="transfer-toast completion-toast" role="status"><div><strong>{completionNotice.action === "reject" ? "거절 이메일" : "이메일"} {completionNotice.sent ? "발송 완료" : "발송 실패"}</strong><span>{completionNotice.action === "reject" ? (completionNotice.sent ? "신청이 거절되었으며, 학생에게 거절 사유를 이메일로 발송했습니다." : "신청은 거절되었지만 이메일을 발송하지 못했습니다.") : (completionNotice.sent ? "베드 비움 처리가 완료되었으며, 학생에게 출력 완료 이메일을 발송했습니다." : "베드 비움 처리는 완료되었지만 이메일을 발송하지 못했습니다.")}</span></div><button className="icon-button" onClick={() => setCompletionNotice(null)} aria-label="알림 닫기"><X size={16} /></button></div> : transfer ? <div className="transfer-toast" role="status"><div><strong>{transfer.phase === "error" ? "전송 실패" : "프린터 전송"}</strong><span>{transfer.message}</span></div>{transfer.progress != null ? <div className="progress"><span style={{ width: `${transfer.progress}%` }} /></div> : null}{["done", "error"].includes(transfer.phase) ? <button className="icon-button" onClick={() => setTransfer(null)} aria-label="닫기"><X size={16} /></button> : null}</div> : null}
+      {completionNotice ? <div className="transfer-toast completion-toast" role="status"><div><strong>{completionNotice.action === "reject" ? "거절 이메일" : "이메일"} {completionNotice.sent ? "발송 완료" : "발송 실패"}</strong><span>{completionNotice.action === "reject" ? (completionNotice.sent ? "신청이 거절되었으며, 학생에게 거절 사유를 이메일로 발송했습니다." : "신청은 거절되었지만 이메일을 발송하지 못했습니다.") : (completionNotice.sent ? "베드 비움 처리가 완료되었으며, 학생에게 출력 완료 이메일을 발송했습니다." : "베드 비움 처리는 완료되었지만 이메일을 발송하지 못했습니다.")}</span></div><button className="icon-button" onClick={() => setCompletionNotice(null)} aria-label="알림 닫기"><X size={16} /></button></div> : transfer ? <div className="transfer-toast" role="status"><div><strong>{transfer.kind === "filament_swap" ? (transfer.phase === "error" ? "필라멘트 교체 실패" : "필라멘트 교체") : (transfer.phase === "error" ? "전송 실패" : "프린터 전송")}</strong><span>{transfer.message}</span></div>{transfer.progress != null ? <div className="progress"><span style={{ width: `${transfer.progress}%` }} /></div> : null}{["done", "error"].includes(transfer.phase) ? <button className="icon-button" onClick={() => setTransfer(null)} aria-label="닫기"><X size={16} /></button> : null}</div> : null}
     </div>
   );
 }
@@ -201,7 +217,7 @@ function FailedJob({ job, printer, printers, mutate, busy }: { job: Job; printer
   return <div className="admin-failure-item"><AlertTriangle size={16} aria-hidden="true" /><div className="admin-failure-copy"><JobName job={job} /><span>{job.admin_notes || "출력 실패를 확인한 뒤 조치해 주세요."}</span></div><div className="admin-failure-actions"><button className="button button-secondary button-small" disabled={!!busy} onClick={() => mutate(`retry-${job.id}`, `/api/admin/jobs/${job.id}/retry`, { at_front: 1 })}><RotateCcw size={14} /> 같은 프린터 재시도</button><MoveSelect job={job} printer={printer} printers={printers} mutate={mutate} retry /><button className="button button-ghost button-small" disabled={!!busy} onClick={() => mutate(`dismiss-${job.id}`, `/api/admin/jobs/${job.id}/dismiss-failure`)}><Check size={14} /> 확인 처리</button></div></div>;
 }
 
-function AdminPrinter({ printer, printers, busy, mutate, startTransfer }: { printer: Printer; printers: Printer[]; busy: string; mutate: Mutate; startTransfer: (job: Job, slot: string) => Promise<void> }) {
+function AdminPrinter({ printer, printers, busy, mutate, startTransfer, swapFilament }: { printer: Printer; printers: Printer[]; busy: string; mutate: Mutate; startTransfer: (job: Job, slot: string) => Promise<void>; swapFilament: (printer: Printer, slot: string) => Promise<void> }) {
   const [slot, setSlot] = useState("");
   const jobs = printer.jobs ?? [];
   const loadedSlots = printer.slots?.filter((item) => !item.is_empty) ?? [];
@@ -230,9 +246,32 @@ function AdminPrinter({ printer, printers, busy, mutate, startTransfer }: { prin
   const livePct = (activeJob ? printProgress(activeJob) : null) ?? printer.progress;
   const progressSuffix = ["printing", "paused"].includes(printer.status) && livePct != null ? `${livePct}%` : undefined;
   return <article className="card admin-printer"><header className="admin-printer-header"><div><h3>{printer.name}</h3><span>{printer.nozzle_temp != null ? `노즐 ${Math.round(printer.nozzle_temp)}° · 베드 ${Math.round(printer.bed_temp ?? 0)}°` : "온도 정보 없음"}</span></div><StatusBadge status={printer.status} suffix={progressSuffix} /></header>
+    {printer.status === "paused" ? <PausedPrinter printer={printer} busy={busy} swapFilament={swapFilament} /> : null}
     {(printer.failed_jobs ?? []).length ? <section className="admin-failures" aria-label={`${printer.name} 실패 작업`}><div className="admin-failure-heading"><AlertTriangle size={15} /><strong>조치가 필요한 실패 작업</strong><span>{printer.failed_jobs!.length}</span></div>{printer.failed_jobs!.map((job) => <FailedJob key={job.id} job={job} printer={printer} printers={printers} mutate={mutate} busy={busy} />)}</section> : null}
     <div className="admin-queue-scroll"><div className="admin-queue">{jobs.length ? jobs.map((job) => <div className="admin-queue-item" key={job.id}><div className="admin-queue-index">{job.status === "queued" ? job.queue_position : "•"}</div><JobName job={job} /><div className="admin-job-top-actions">{job.status === "queued" ? <><button className="icon-button" aria-label={`${job.filename} 위로`} onClick={() => mutate(`up-${job.id}`, `/api/admin/jobs/${job.id}/move`, { direction: "up" })}><ChevronUp size={16} /></button><button className="icon-button" aria-label={`${job.filename} 아래로`} onClick={() => mutate(`down-${job.id}`, `/api/admin/jobs/${job.id}/move`, { direction: "down" })}><ChevronDown size={16} /></button><JobMore job={job} printer={printer} printers={printers} mutate={mutate} /></> : <StatusBadge status={job.status} suffix={job.status === "printing" ? `${printProgress(job) ?? 0}%` : undefined} />}</div><div className="admin-queue-actions">{job.status === "queued" && job.id === firstQueuedId ? <><button className={`button button-primary button-small ${busy === `start-${job.id}` ? "button-loading" : ""}`} disabled={!!busy || !selectedSlotAvailable || ["printing", "paused"].includes(printer.status)} onClick={() => startTransfer(job, slot)}>출력 시작</button><select className="select compact-select filament-select" aria-label="출력할 필라멘트 색상" value={selectedSlotAvailable ? slot : ""} onChange={(event) => setSlot(event.target.value)} required><option value="" disabled>색상 선택</option>{loadedSlots.map((item) => <option key={item.id} value={item.slot_index}>{item.color_name ?? "색상 미확인"} · {item.material_type ?? "재질 미확인"} (슬롯 {item.slot_index + 1})</option>)}</select>{job.ams_slot != null ? <span className="admin-note filament-request-note">학생 요청: {requestedSlot ? `${requestedSlot.color_name ?? "색상 미확인"} (슬롯 ${requestedSlot.slot_index + 1})` : `슬롯 ${job.ams_slot + 1} (현재 없음)`}</span> : null}</> : null}{job.status === "printing" ? <button className="button button-danger button-small" onClick={() => mutate(`cancel-${job.id}`, `/api/admin/jobs/${job.id}/cancel`, undefined, "프린터 출력을 즉시 취소할까요?")}>출력 취소</button> : null}{job.status === "awaiting_clear" ? <><button type="button" className={`button button-secondary button-small ${busy === `eject-${printer.id}` ? "button-loading" : ""}`} disabled={!!busy} title="베드 위 출력물을 프린터 앞쪽으로 떨어뜨립니다" onClick={() => mutate(`eject-${printer.id}`, `/api/admin/printers/${printer.id}/eject-bed`, undefined, `${printer.name} 앞쪽으로 베드 위 출력물을 떨어뜨리는 동작을 실행합니다. 프린터 앞에 받을 통이 있는지 먼저 확인하세요. 출력물이 아직 붙어있으면 노즐이 부딪힐 수 있으니 직접 보면서 진행하세요. 계속할까요?`)}><Eraser size={13} /> 베드 밀어내기</button><JobDecisionButton job={job} busy={busy} mutate={mutate} action="complete" /><JobPreview job={job} admin /></> : null}</div></div>) : <div className="admin-empty">대기 중인 작업이 없습니다.</div>}</div></div>
   </article>;
+}
+
+function PausedPrinter({ printer, busy, swapFilament }: { printer: Printer; busy: string; swapFilament: (printer: Printer, slot: string) => Promise<void> }) {
+  const info = printer.pause_info;
+  const activeJob = printer.jobs?.find((job) => job.status === "printing");
+  const runoutSlot = info?.runout_slot ?? (info?.runout ? activeJob?.ams_slot ?? null : null);
+  const candidates = (printer.slots ?? []).filter((item) => !item.is_empty && item.slot_index !== runoutSlot);
+  const [slot, setSlot] = useState("");
+  const selected = candidates.some((item) => String(item.slot_index) === slot) ? slot : candidates[0] ? String(candidates[0].slot_index) : "";
+  const title = info?.runout
+    ? `필라멘트 소진${runoutSlot != null ? ` (슬롯 ${runoutSlot + 1})` : ""}`
+    : `일시 정지${info?.print_error ? ` · 오류 ${info.print_error}` : ""}`;
+  return <section className="admin-pause" aria-label={`${printer.name} 일시정지`}>
+    <div className="admin-failure-heading admin-pause-heading"><Pause size={15} /><strong>{title}</strong></div>
+    <div className="admin-pause-body">
+      <span className="admin-note">{candidates.length ? "다른 슬롯의 필라멘트를 넣고 멈춘 위치부터 이어서 출력합니다." : "이어서 출력할 수 있는 필라멘트가 없습니다. AMS에 필라멘트를 넣고 상태를 동기화하세요."}</span>
+      {candidates.length ? <div className="admin-pause-actions">
+        <select className="select compact-select filament-select" aria-label="이어서 출력할 필라멘트" value={selected} onChange={(event) => setSlot(event.target.value)}>{candidates.map((item) => <option key={item.id} value={item.slot_index}>{item.color_name ?? "색상 미확인"} · {item.material_type ?? "재질 미확인"} (슬롯 {item.slot_index + 1})</option>)}</select>
+        <button type="button" className={`button button-primary button-small ${busy === `swap-${printer.id}` ? "button-loading" : ""}`} disabled={!!busy || !selected} onClick={() => swapFilament(printer, selected)}><Repeat size={13} /> 이 필라멘트로 이어서 출력</button>
+      </div> : null}
+    </div>
+  </section>;
 }
 
 function JobDecisionButton({ job, busy, mutate, action }: { job: Job; busy: string; mutate: Mutate; action: "complete" | "reject" }) {

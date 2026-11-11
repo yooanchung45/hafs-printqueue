@@ -61,6 +61,8 @@ class PrinterSession:
         self._last_error = None
         self._data = {}
         self._started = False
+        # sequence_id -> the printer's reply to a command we sent (result/reason).
+        self._replies: dict[str, dict] = {}
 
         client_id = f"hafs-{serial}"[:23]
         self.client = mqtt.Client(
@@ -151,6 +153,15 @@ class PrinterSession:
                     if report.get("gcode_state") in ("PREPARE", "RUNNING") and (not filename or filename == pending.filename):
                         pending.confirmed = True
                     self._start_condition.notify_all()
+                seq = report.get("sequence_id")
+                if report.get("command") and seq is not None and "result" in report:
+                    self._replies[str(seq)] = {
+                        "command": report.get("command"),
+                        "result": str(report.get("result") or "").upper(),
+                        "reason": report.get("reason") or report.get("err_code") or report.get("errno"),
+                    }
+                    if len(self._replies) > 50:
+                        self._replies.pop(next(iter(self._replies)))
                 _deep_merge(self._data, payload)
                 self._last_report = time.monotonic()
                 self._last_error = None
@@ -196,6 +207,59 @@ class PrinterSession:
                 "param": gcode,
             }
         })
+
+    def change_filament(self, slot: int, curr_temp: int, tar_temp: int) -> str:
+        """Load AMS ``slot`` (0-3), unloading whatever is in the toolhead first.
+
+        Same message Bambu Studio sends from the AMS panel; Studio allows it
+        while a print is paused. The A1 refuses filament moves without temps.
+        """
+        seq = str(time.time_ns())
+        slot = int(slot)
+        self.publish({
+            "print": {
+                "sequence_id": seq,
+                "command": "ams_change_filament",
+                "ams_id": slot // 4,
+                "slot_id": slot % 4,
+                "target": slot,
+                "curr_temp": int(curr_temp),
+                "tar_temp": int(tar_temp),
+            }
+        })
+        return seq
+
+    def clear_print_error(self, subtask_id, print_error: int):
+        """Dismiss the printer's error dialog (Studio sends both messages)."""
+        self.publish({
+            "print": {
+                "sequence_id": str(time.time_ns()),
+                "command": "clean_print_error",
+                "subtask_id": str(subtask_id or ""),
+                "print_error": int(print_error),
+            }
+        })
+        self.publish({
+            "system": {
+                "sequence_id": str(time.time_ns()),
+                "command": "uiop",
+                "name": "print_error",
+                "action": "close",
+                "source": 1,
+                "type": "dialog",
+                "err": f"{int(print_error) & 0xFFFFFFFF:08X}",
+            }
+        })
+
+    def resume_print(self) -> str:
+        seq = str(time.time_ns())
+        self.publish({"print": {"sequence_id": seq, "command": "resume", "param": ""}})
+        return seq
+
+    def reply(self, sequence_id: str) -> dict | None:
+        with self._lock:
+            found = self._replies.get(str(sequence_id))
+            return dict(found) if found else None
 
     def start_print(self, filename: str, ams_slot: int, plate_gcode: str = "Metadata/plate_1.gcode"):
         """Start an uploaded 3MF using the already-connected MQTT session."""

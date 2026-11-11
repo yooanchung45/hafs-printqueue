@@ -51,6 +51,14 @@ export interface Printer {
   slots?: FilamentSlot[];
   jobs?: Job[];
   failed_jobs?: Job[];
+  pause_info?: PauseInfo | null;
+}
+
+export interface PauseInfo {
+  print_error: string | null;
+  runout: boolean;
+  runout_slot: number | null;
+  tray_now: number | null;
 }
 
 export interface Job {
